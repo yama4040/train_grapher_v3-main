@@ -1,0 +1,118 @@
+{
+  "tasks": [
+    {
+      "id": "task1",
+      "status": "未完了",
+      "title": "実験用共通データ選択スクリプトの作成",
+      "note": "experiments/datas/ からランダムに10日分を選択して experiments/selected_days.json に保存するスクリプト。全MPCモデルで同じデータを使うために先にこのファイルを作り、シード値で再現性を確保する。\n\n出力JSONの形式:\n  {\"selected\": [\"sim_2024-04-01.json\", ...], \"seed\": 42, \"n\": 10, \"created_at\": \"2026-...\"}\n\n参考: experiments/base_model/runner.py の select_files()",
+      "step": [
+        "experiments/select_days.py を新規作成",
+        "get_all_data_files(datas_dir: Path) -> list[Path] 関数を実装: datas_dir/*.json を glob で取得してソート済みリストを返す",
+        "select_days(all_files, n, seed) -> list[Path] 関数を実装: random.seed(seed) を設定し random.sample(all_files, min(n, len(all_files))) で選択",
+        "save_selection(selected: list[Path], seed: int, output_path: Path) 関数を実装: {\"selected\": [ファイル名のみ], \"seed\": seed, \"n\": len(selected), \"created_at\": datetime.now().isoformat()} を output_path に JSON 書き出し",
+        "argparse で --n（デフォルト10）、--seed（デフォルト42）、--datas（デフォルト experiments/datas）、--output（デフォルト experiments/selected_days.json）オプションを持つ main() 関数を実装",
+        "uv run python experiments/select_days.py で実行できることを確認（experiments/selected_days.json が生成されること）",
+        "uv run ruff check experiments/select_days.py && uv run ruff format experiments/select_days.py を実行"
+      ]
+    },
+    {
+      "id": "task2",
+      "status": "未完了",
+      "title": "Model A: BrakingBuffer型 MPC BlockSystem の実装",
+      "note": "【概念】通常の移動閉塞に「反応時間バッファ距離」を加え、先行列車停止距離に余裕を持たせることで駅間停車を予防するMPC。制御則はブロックシステムレベルで実装。駅間停車後の15秒安全確認はベースモデルと同じ。\n\n【数式 (_get_instruction_speed をオーバーライド)】\n  1. d_avail = d_to_preceding - L_train - d_min_gap  [km]\n     ※ 親クラス MovingBlockSystem と同じ手順で計算\n  2. v_self = train.get_running_data().get_velocity(step-1)  [km/h]\n  3. d_buf = v_self * T_buf / 3600  [km]\n     T_buf: バッファ時間パラメータ（デフォルト 25 秒）\n     → 「T_buf秒間この速度で走ったとき移動する距離」を余白として確保\n  4. d_eff = max(0.0, d_avail - d_buf)  [km]\n  5. decel_abs = |train._train_parameter.decelerating_acceleration|  [km/h/s]\n  6. v_allowable = sqrt(2 * decel_abs * d_eff * 3600)  [km/h]\n     ※ 3600 = 1000 * 3.6。MovingBlockSystem の逆算式と同一\n  7. instruction_speed = min(max_speed, v_allowable)\n     d_eff <= 0 の場合は 0 を返す（緊急停止）\n\n【物理的意味】現時点から T_buf 秒後にブレーキを掛け始めても先行列車末尾の手前で停止できる速度に制限する。通常の移動閉塞より早く速度を絞るため、0 km/h への追い込みが起きにくい。\n\n【ファイル構成】\n  experiments/mpc_model_a/block_system.py   ← MPCBlockSystemA\n  experiments/mpc_model_a/driving_decision.py ← MPCADrivingDecision（BaseModelDrivingDecision 相当）\n  experiments/mpc_model_a/runner.py          ← base_model/runner.py ベース",
+      "step": [
+        "experiments/mpc_model_a/ ディレクトリを作成",
+        "experiments/mpc_model_a/block_system.py を新規作成: from train_grapher_v3.core.block_system import MovingBlockSystem を import して MPCBlockSystemA(MovingBlockSystem) クラスを定義",
+        "MPCBlockSystemA.__init__(self, line_shape, *, min_safe_distance=0.03, t_buffer=25.0) を実装: super().__init__(line_shape, min_safe_distance=min_safe_distance) を呼び self._t_buffer = t_buffer を保存",
+        "_get_instruction_speed() をオーバーライド: step==0, position is None, block is None の早期 return は親クラスと同様に実装",
+        "_get_instruction_speed() の本体: (a)先行列車 None → max_speed 返す (b)先行列車位置取得 → None → max_speed 返す (c)route.get_distance() で distance 計算 → <=0 → max_speed 返す (d)actual_gap = distance - preceding_train._train_parameter.length (e)d_avail = actual_gap - self._min_safe_distance (f)d_avail <= 0 → 0 を返す (g)v_self = train.get_running_data().get_velocity(step-1) or 0.0 (h)d_buf = v_self * self._t_buffer / 3600 (i)d_eff = max(0.0, d_avail - d_buf) (j)decel_abs = abs(train._train_parameter.decelerating_acceleration) (k)v_allowable = (2 * decel_abs * d_eff * 3600) ** 0.5 (l)return min(max_speed, v_allowable)",
+        "experiments/mpc_model_a/driving_decision.py を作成: experiments/base_model/driving_decision.py の BaseModelDrivingDecision をコピーし、クラス名を MPCADrivingDecision・docstring を Model A 向けに更新（ロジックは同一）",
+        "experiments/mpc_model_a/runner.py を作成: experiments/base_model/runner.py をベースに、MPCBlockSystemA と MPCADrivingDecision をインポート・使用するよう変更。_DEFAULT_RESULTS_DIR を experiments/results/mpc_model_a に変更。run_info.json に model=\"mpc_model_a\" と t_buffer=MPCBlockSystemA のデフォルト値を追記",
+        "uv run python experiments/mpc_model_a/runner.py --test で動作確認（CHECK_SAFETY の発生が base_model より減っているか確認）",
+        "uv run ruff check experiments/mpc_model_a/ && uv run ruff format experiments/mpc_model_a/ を実行"
+      ]
+    },
+    {
+      "id": "task3",
+      "status": "未完了",
+      "title": "Model B: VelocityTracking型 MPC BlockSystem の実装",
+      "note": "【概念】先行列車の速度・加速度から T_h 秒後の車間距離を予測し、現在と未来の両時点で安全な速度の小さい方を採用することで駅間停車を予防するMPC。先行列車が急ブレーキを掛けても、T_h 秒先の状態を見越して早めに速度を絞る。\n\n【数式 (_get_instruction_speed をオーバーライド)】\n  1. 現在の d_avail を通常の MovingBlockSystem と同様に計算\n  2. v_pre = preceding_train.get_running_data().get_velocity(step-1) or 0.0  [km/h]\n  3. a_pre = preceding_train.get_running_data().get_acceleration(step-1) or 0.0  [km/h/s]\n  4. v_self = train.get_running_data().get_velocity(step-1) or 0.0  [km/h]\n  5. T_h秒後の先行列車速度（クランプ）:\n     v_pre_T = max(0.0, v_pre + a_pre * T_h)  [km/h]\n  6. T_h秒間の先行列車走行距離（台形則）:\n     d_pre_moved = (v_pre + v_pre_T) / 2.0 * T_h / 3600  [km]\n  7. T_h秒間の自列車走行距離（等速仮定）:\n     d_self_moved = v_self * T_h / 3600  [km]\n  8. T_h秒後の予測有効車間距離:\n     d_avail_T = d_avail_now + d_pre_moved - d_self_moved  [km]\n     d_avail_T < 0 → 0 を返す（停止必須）\n  9. 現在・将来の安全速度を計算:\n     v_safe_now = sqrt(2 * decel_abs * max(0,d_avail_now) * 3600)  [km/h]\n     v_safe_T   = sqrt(2 * decel_abs * max(0,d_avail_T)   * 3600)  [km/h]\n  10. instruction_speed = min(max_speed, v_safe_now, v_safe_T)\n\nT_h: 予測水平線パラメータ（デフォルト 15 秒）。長いほど先読みが強くなるが速度低下も増す。\n\n【ファイル構成】\n  experiments/mpc_model_b/block_system.py   ← MPCBlockSystemB\n  experiments/mpc_model_b/driving_decision.py ← MPCBDrivingDecision\n  experiments/mpc_model_b/runner.py",
+      "step": [
+        "experiments/mpc_model_b/ ディレクトリを作成",
+        "experiments/mpc_model_b/block_system.py を新規作成: MovingBlockSystem を継承した MPCBlockSystemB クラスを定義",
+        "MPCBlockSystemB.__init__(self, line_shape, *, min_safe_distance=0.03, t_horizon=15.0) を実装",
+        "_get_instruction_speed() をオーバーライド: step==0 等の早期 return は親と同様。先行列車 None → max_speed 返す。先行列車位置 None → max_speed 返す。distance <= 0 → max_speed 返す",
+        "_get_instruction_speed() 本体: (a)actual_gap・d_avail_now 計算（親と同様）(b)d_avail_now <= 0 → 0 返す (c)v_pre, a_pre を preceding_train.get_running_data() から取得（None → 0.0）(d)v_self を train.get_running_data().get_velocity(step-1) から取得（None → 0.0）(e)v_pre_T = max(0.0, v_pre + a_pre * self._t_horizon) を計算 (f)d_pre_moved = (v_pre + v_pre_T) / 2.0 * self._t_horizon / 3600 を計算 (g)d_self_moved = v_self * self._t_horizon / 3600 を計算 (h)d_avail_T = d_avail_now + d_pre_moved - d_self_moved を計算 (i)d_avail_T <= 0 → 0 返す (j)decel_abs = abs(train._train_parameter.decelerating_acceleration) (k)v_safe_now = (2 * decel_abs * max(0, d_avail_now) * 3600) ** 0.5 (l)v_safe_T = (2 * decel_abs * max(0, d_avail_T) * 3600) ** 0.5 (m)return min(max_speed, v_safe_now, v_safe_T)",
+        "experiments/mpc_model_b/driving_decision.py を作成: mpc_model_a/driving_decision.py をコピーし クラス名を MPCBDrivingDecision に変更",
+        "experiments/mpc_model_b/runner.py を作成: mpc_model_a/runner.py をベースに MPCBlockSystemB と MPCBDrivingDecision を使用するよう変更。_DEFAULT_RESULTS_DIR を experiments/results/mpc_model_b に変更。run_info.json に model=\"mpc_model_b\" と t_horizon を追記",
+        "uv run python experiments/mpc_model_b/runner.py --test で動作確認",
+        "uv run ruff check experiments/mpc_model_b/ && uv run ruff format experiments/mpc_model_b/ を実行"
+      ]
+    },
+    {
+      "id": "task4",
+      "status": "未完了",
+      "title": "Model C: AdaptivePrediction型 MPC DrivingDecision の実装",
+      "note": "【概念】DrivingDecision レベルで、instruction_speed の変化トレンドを追跡し「T_p 秒後の instruction_speed を予測」することで早期制動を行うMPC。BlockSystem は通常の MovingBlockSystem を使用。\n\n信号指示速度 v_inst は MovingBlockSystem が計算する「今この速度以下ならこの先で停止できる」上限速度である。v_inst が急落しているときは先行列車が急ブレーキ中を意味するため、T_p 秒後にさらに v_inst が低下することが予測できる。\n\n【数式 (decide() 内で使用する予測ロジック)】\n  ローリングバッファ: 直近 N_hist ステップ分の instruction_speed を self._inst_speed_history: deque[float] に格納（Noneは直前の有効値で補完）\n\n  1. v_inst_now = signal_instruction.instruction_speed（Noneの場合は制限なしとして処理をスキップ）\n  2. バッファを更新して trend を計算（変化速度）:\n     trend = (v_inst_now - self._inst_speed_history[0]) / (N_hist * step_size)  [km/h/s]\n     バッファが N_hist 未満なら trend = 0\n  3. T_p 秒後の予測 instruction_speed:\n     v_inst_predicted = max(0.0, v_inst_now + trend * T_p)  [km/h]\n  4. 有効速度上限（現在と予測の小さい方）:\n     v_eff = min(v_inst_now, v_inst_predicted)\n\n  DrivingDecision での適用:\n  - v_eff < velocity の場合 → BRAKE_OVERSPEED を返す（予測的制動）\n  - v_eff < velocity - fast_margine かつ前ステップが BRAKE_OVERSPEED → 継続\n  - v_eff < velocity - slow_margine → COASTING を返す（予測的惰行）\n  - それ以外は DefaultDrivingDecision に委譲\n  - 駅間停車後のCHECK_SAFETY（15秒）は BaseModelDrivingDecision と同じロジックを組み込む\n\n  パラメータ: N_hist=20（2秒分バッファ）、T_p=10.0秒（予測水平線）\n\n【ファイル構成】\n  experiments/mpc_model_c/driving_decision.py ← MPCCDrivingDecision\n  experiments/mpc_model_c/runner.py           ← MovingBlockSystem + MPCCDrivingDecision",
+      "step": [
+        "experiments/mpc_model_c/ ディレクトリを作成",
+        "experiments/mpc_model_c/driving_decision.py を新規作成: from collections import deque と DefaultDrivingDecision, BaseModelDrivingDecision 相当のロジックを import して MPCCDrivingDecision(DefaultDrivingDecision) クラスを定義",
+        "__init__(self, step_size, safety_check_time=15.0, n_hist=20, t_predict=10.0, w_trend=1.0) を実装: self._step_size, self._safety_check_time, self._n_hist, self._t_predict を保存。self._inst_speed_history: deque[float] = deque(maxlen=n_hist) を初期化。BaseModelDrivingDecision と同様に self._safety_check_start_step: int | None = None と self._has_ever_moved: bool = False を追加",
+        "_update_history(v_inst: float) -> None メソッドを実装: self._inst_speed_history.append(v_inst)",
+        "_predict_inst_speed(v_inst_now: float) -> float メソッドを実装: len(history) < n_hist → v_inst_now を返す。trend = (v_inst_now - history[0]) / (n_hist * step_size)。return max(0.0, v_inst_now + trend * t_predict)",
+        "decide() をオーバーライド: (1)NONE_SIMURATION・step==0・STOPPING_STATION・must_stop_at_next_station の判定は DefaultDrivingDecision と同様 (2)BaseModelDrivingDecision と同様の _has_ever_moved 更新・CHECK_SAFETY 継続・駅間停車再発車検出ロジックを実装 (3)instruction_speed が None なら DefaultDrivingDecision に委譲 (4)_update_history(v_inst_now) を呼ぶ (5)v_eff = min(v_inst_now, _predict_inst_speed(v_inst_now)) を計算 (6)velocity > v_eff → BRAKE_OVERSPEED 返す (7)status == BRAKE_OVERSPEED かつ velocity > v_eff - fast_margine → BRAKE_OVERSPEED 継続 (8)velocity > v_eff - slow_margine → COASTING 返す (9)それ以外 → super().decide() に委譲",
+        "experiments/mpc_model_c/runner.py を作成: mpc_model_a/runner.py をベースに MovingBlockSystem と MPCCDrivingDecision を使用するよう変更。_DEFAULT_RESULTS_DIR を experiments/results/mpc_model_c に変更。run_info.json に model=\"mpc_model_c\"、n_hist、t_predict を追記",
+        "uv run python experiments/mpc_model_c/runner.py --test で動作確認",
+        "uv run ruff check experiments/mpc_model_c/ && uv run ruff format experiments/mpc_model_c/ を実行"
+      ]
+    },
+    {
+      "id": "task5",
+      "status": "未完了",
+      "title": "全モデル一括実行スクリプトの実装",
+      "note": "experiments/run_all_mpc_models.py を作成。experiments/selected_days.json を読み込み、base_model・mpc_model_a・mpc_model_b・mpc_model_c の4モデルで同じ10日分を実行し、各結果を experiments/results/<model_name>/<timestamp>/ に保存する。各モデルの run_single_file() を動的インポートして ProcessPoolExecutor で並列実行。最後に全モデルの CHECK_SAFETY ステップ数を比較表示する。",
+      "step": [
+        "experiments/run_all_mpc_models.py を新規作成",
+        "load_selected_days(selected_days_path: Path, datas_dir: Path) -> list[Path] 関数を実装: selected_days.json を読み込み、selected フィールドのファイル名リストを datas_dir の絶対パスに変換して返す",
+        "MODEL_CONFIGS リストを定義: [{\"name\": \"base_model\", \"module\": \"experiments.base_model.runner\", \"results_dir\": ...}, {\"name\": \"mpc_model_a\", ...}, {\"name\": \"mpc_model_b\", ...}, {\"name\": \"mpc_model_c\", ...}] 形式。モジュールパスと _DEFAULT_RESULTS_DIR パスを各モデルのファイルに合わせて設定",
+        "run_model_batch(model_config: dict, file_paths: list[Path], workers: int) -> list[dict] 関数を実装: importlib.import_module() でモデルの runner モジュールを動的 import して run_single_file() を取得。ProcessPoolExecutor で file_paths を並列実行して結果リストを返す",
+        "main() で argparse（--workers デフォルト2、--selected-days デフォルト experiments/selected_days.json、--datas、--models「all または comma区切りモデル名」）を実装",
+        "main() の実行フロー: (1)selected_days.json が存在しなければエラー終了・存在確認 (2)選択モデルを絞り込む (3)各モデルで run_model_batch() を順次実行（モデル間の同一データ使用を保証するため逐次） (4)全モデルの results 比較サマリーを表形式で表示（モデル名・CHECK_SAFETY合計・成功件数）",
+        "uv run python experiments/run_all_mpc_models.py --models base_model,mpc_model_a --workers 2 で動作確認（selected_days.json 生成後）",
+        "uv run ruff check experiments/run_all_mpc_models.py && uv run ruff format experiments/run_all_mpc_models.py を実行"
+      ]
+    },
+    {
+      "id": "task6",
+      "status": "未完了",
+      "title": "ダイヤ図比較スクリプトの実装",
+      "note": "experiments/compare/plot_diagram.py を作成。各モデルの最新バッチ結果から同じ日付のシミュレーション結果を読み込み、graph_viewer.plot_diagram() で全モデル重ね描きのダイヤ図（時間-位置グラフ）を PNG で保存する。\n\n出力先: experiments/compare/outputs/diagrams/<date>_diagram.png\n\n参考: src/train_grapher_v3/util/graph_viewer.py の SimulationResult.load() と plot_diagram()",
+      "step": [
+        "experiments/compare/ ディレクトリを作成",
+        "experiments/compare/plot_diagram.py を新規作成",
+        "find_latest_batch(results_model_dir: Path) -> Path | None 関数を実装: results/<model>/ 以下のタイムスタンプ形式（YYYYMMDD_HHMMSS）ディレクトリを listdir して最新のものを返す（存在しなければ None）",
+        "find_sim_dirs(batch_dir: Path) -> dict[str, Path] 関数を実装: バッチ内の各サブディレクトリ（results_summary.json が存在するもの）を探索し {\"sim_2024-04-01\": Path(...)} 形式の辞書を返す",
+        "plot_diagram_for_date(date_name: str, model_result_dirs: dict[str, Path], output_path: Path) 関数を実装: モデルごとに SimulationResult.load(str(dir), label=model_name) で読み込み → plot_diagram(results_list, show=False) で Figure 生成 → fig.savefig(output_path, dpi=150, bbox_inches='tight') で保存",
+        "main() で argparse（--results-base デフォルト experiments/results、--output-dir デフォルト experiments/compare/outputs/diagrams、--models デフォルト all）を実装: (1)各モデルの find_latest_batch() でバッチ取得 (2)全モデルに共通する date_name を set 積で抽出 (3)共通 date ごとに plot_diagram_for_date() を呼ぶ (4)保存済みファイル一覧を表示",
+        "uv run python experiments/compare/plot_diagram.py で動作確認（結果ディレクトリが存在する場合）",
+        "uv run ruff check experiments/compare/plot_diagram.py && uv run ruff format experiments/compare/plot_diagram.py を実行"
+      ]
+    },
+    {
+      "id": "task7",
+      "status": "未完了",
+      "title": "ランカーブ図比較スクリプトの実装",
+      "note": "experiments/compare/plot_running_curve.py を作成。同じ日付・同じ列車番号でモデルごとのランカーブ（位置-速度グラフ）を重ね描きして比較する。graph_viewer.plot_running_curve() を使用。\n\n出力先: experiments/compare/outputs/running_curves/<date>/<train_name>_running_curve.png\n\nplot_diagram.py と共通する find_latest_batch()、find_sim_dirs() の関数は、experiments/compare/utils.py に切り出して両スクリプトから import する。",
+      "step": [
+        "experiments/compare/utils.py を新規作成: find_latest_batch() と find_sim_dirs() を plot_diagram.py から移動してここに定義し、plot_diagram.py からも import するよう修正",
+        "experiments/compare/plot_running_curve.py を新規作成",
+        "get_common_dates(model_batch_dirs: dict[str, Path]) -> list[str] 関数を実装: 各モデルの sim ディレクトリ名の積集合を計算して共通 date_name リストを返す",
+        "get_train_names_for_date(date_name: str, model_result_dirs: dict[str, Path]) -> set[str] 関数を実装: 各モデルの SimulationResult.load() で train_names を取得して和集合を返す",
+        "plot_running_curve_for_train(train_name: str, date_name: str, model_result_dirs: dict[str, Path], output_path: Path) 関数を実装: モデルごとに SimulationResult.load() でデータ取得 → train_name が存在するモデルのみ train_specs = [(result, train_name, model_name), ...] に追加 → plot_running_curve(train_specs, show=False) で Figure 生成 → fig.savefig(output_path) で保存",
+        "main() で argparse（--results-base、--output-dir デフォルト experiments/compare/outputs/running_curves、--models、--date「特定日付のみ処理するオプション、省略で全共通日」、--train「特定列車名フィルタ」）を実装: 共通 date ごと・列車名ごとに plot_running_curve_for_train() を呼ぶ",
+        "uv run python experiments/compare/plot_running_curve.py で動作確認",
+        "uv run ruff check experiments/compare/ && uv run ruff format experiments/compare/ を実行"
+      ]
+    }
+  ]
+}

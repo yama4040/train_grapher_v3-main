@@ -1,0 +1,6 @@
+{
+  "name": "サンプル実験（固定閉塞・1列車）",
+  "description": "experiments の動作確認用サンプル。固定閉塞システムで1列車を走行させる基本的な実験。",
+  "author": "",
+  "tags": ["baseline", "fixed-block", "single-train"]
+}

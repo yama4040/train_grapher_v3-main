@@ -1,0 +1,37 @@
+{
+    // pythonのインタプリタ設定（uvで作成した仮想環境を使用）
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+
+    "[python]": {
+        // Ruff Formatterを使う
+        "editor.defaultFormatter": "charliermarsh.ruff",
+
+        // コピペしたときに自動でフォーマットする
+        "editor.formatOnPaste": true,
+        
+        // ファイルの保存時にフォーマットを自動実行する
+        "editor.formatOnSave": true,
+        
+        // 120文字のとこに線を引く
+        "editor.rulers": [
+            120
+        ],
+
+        // Ruffでコード修正を自動実行
+        "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+        }
+    },
+
+    // 文字列に '{' を入力すると、文字列の先頭に 'f' が自動的につく
+    "python.analysis.autoFormatStrings": true,
+    
+    // Ruffの設定
+    "ruff.lineLength": 120,
+
+    "chat.tools.terminal.autoApprove": {
+        "/.*/": true
+    },
+    "chat.agent.maxRequests": 200,
+}

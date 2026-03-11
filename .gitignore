@@ -1,0 +1,23 @@
+# python generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# venv
+.venv
+
+# シミュレーションデータ用フォルダ
+datas/
+
+# ログ関係
+logs/
+
+# 古いソースコード類(train grapher v2とか)
+archive/
+
+# 実験結果（大容量のためGit管理外）
+experiments/results/
+experiments/datas/
