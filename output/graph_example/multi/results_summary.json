@@ -1,0 +1,34 @@
+{
+  "saved_at": "2026-03-13T11:47:47.813335",
+  "simulation_config": {
+    "step_size": 0.1,
+    "total_steps": 4000,
+    "total_time_s": 400.0
+  },
+  "trains": [
+    {
+      "name": "急行列車",
+      "total_recorded_steps": 4000,
+      "start_step": 0,
+      "start_time_s": 0.0,
+      "end_step": 3999,
+      "end_time_s": 399.9,
+      "max_velocity_kmh": 62.141,
+      "average_velocity_kmh": 21.22,
+      "final_position_km": 2.357733,
+      "final_edge_id": "edge1"
+    },
+    {
+      "name": "普通列車",
+      "total_recorded_steps": 4000,
+      "start_step": 0,
+      "start_time_s": 0.0,
+      "end_step": 3999,
+      "end_time_s": 399.9,
+      "max_velocity_kmh": 95.092,
+      "average_velocity_kmh": 79.387,
+      "final_position_km": 7.500145,
+      "final_edge_id": "edge1"
+    }
+  ]
+}

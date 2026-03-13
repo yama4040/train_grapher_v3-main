@@ -25,8 +25,10 @@ from train_grapher_v3.util.simulation_model_io import load_simulation_model
 # ---- 設定 ----------------------------------------------------------------
 
 # 使用するJSONモデル
-SIMPLE_MODEL = "datas/simple_simulation_model.json"
-MULTI_MODEL = "datas/multi_train_simulation_model.json"
+# SIMPLE_MODEL = "datas/simple_simulation_model.json"
+SIMPLE_MODEL = "datas/simple_simulation_model_generated.json"  # 生成したモデルを使用する場合はこちら
+# MULTI_MODEL = "datas/multi_train_simulation_model.json"
+MULTI_MODEL = "datas/multi_train_simulation_model_generated.json"  # 生成したモデルを使用する場合はこちら
 
 # 結果の保存先
 OUTPUT_SIMPLE = "output/graph_example/simple"
@@ -35,11 +37,10 @@ OUTPUT_MULTI = "output/graph_example/multi"
 
 # ---- シミュレーション実行 ------------------------------------------------
 
+
 def run_and_save(json_path: str, output_dir: str, label: str) -> None:
     """JSONモデルを実行して結果を保存"""
-    line_shape, trains, step_size, total_steps, block_system_type = (
-        load_simulation_model(json_path)
-    )
+    line_shape, trains, step_size, total_steps, block_system_type = load_simulation_model(json_path)
     block_system = FixedBlockSystem(line_shape)
     line = Line(line_shape=line_shape, trains=trains, block_system=block_system)
     simulation = Simulation(line=line, step_size=step_size)
@@ -59,6 +60,7 @@ def run_and_save(json_path: str, output_dir: str, label: str) -> None:
 
 # ---- グラフ描画 ----------------------------------------------------------
 
+
 def example_diagram_single() -> None:
     """ダイヤ図：単一シミュレーション結果"""
     result = SimulationResult.load(OUTPUT_MULTI, label="マルチ列車")
@@ -77,8 +79,8 @@ def example_diagram_range() -> None:
 
     plot_diagram(
         result,
-        time_range=(0, 200),      # 0〜200秒
-        position_range=(0, 5),    # 0〜5km
+        time_range=(0, 200),  # 0〜200秒
+        position_range=(0, 5),  # 0〜5km
         show=False,
     )
     plt.suptitle("ダイヤ図（時間帯・区間指定）")
@@ -126,7 +128,7 @@ def example_running_curve_multi() -> None:
 
     plot_running_curve(
         specs,
-        position_range=(0, 5),    # 0〜5km の区間
+        position_range=(0, 5),  # 0〜5km の区間
         show=False,
     )
     plt.suptitle("ランカーブ（複数列車・複数シミュレーション重ね合わせ）")
@@ -153,6 +155,7 @@ def example_subplot() -> None:
 
 
 # ---- メイン --------------------------------------------------------------
+
 
 def main() -> None:
     # シミュレーションを実行して結果を保存

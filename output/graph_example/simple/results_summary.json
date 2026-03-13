@@ -1,0 +1,22 @@
+{
+  "saved_at": "2026-03-13T11:47:47.406024",
+  "simulation_config": {
+    "step_size": 0.1,
+    "total_steps": 3000,
+    "total_time_s": 300.0
+  },
+  "trains": [
+    {
+      "name": "列車1号",
+      "total_recorded_steps": 3000,
+      "start_step": 0,
+      "start_time_s": 0.0,
+      "end_step": 2999,
+      "end_time_s": 299.9,
+      "max_velocity_kmh": 114.013,
+      "average_velocity_kmh": 75.419,
+      "final_position_km": 5.028313,
+      "final_edge_id": "edge1"
+    }
+  ]
+}

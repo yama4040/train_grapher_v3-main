@@ -13,7 +13,7 @@ from train_grapher_v3.core.line import Line
 from train_grapher_v3.core.simulation import Simulation
 from train_grapher_v3.util.logger import setup_logger
 from train_grapher_v3.util.simple_viewer import display_graph_all
-from train_grapher_v3.util.simulation_model_io import load_simulation_model, save_simulation_model
+from train_grapher_v3.util.simulation_model_io import load_simulation_model
 
 logger = setup_logger(__name__)
 
@@ -35,7 +35,7 @@ def run_simulation_from_json(json_file: str, output_graph: bool = True) -> Simul
     # JSONモデルを読込
     line_shape, trains, step_size, total_steps, block_system_type = load_simulation_model(json_file)
 
-    logger.info(f"読込完了:")
+    logger.info("読込完了:")
     logger.info(f"  - ステップサイズ: {step_size} 秒")
     logger.info(f"  - 総ステップ数: {total_steps}")
     logger.info(f"  - シミュレーション時間: {step_size * total_steps} 秒 ({step_size * total_steps / 60:.1f} 分)")
@@ -61,7 +61,7 @@ def run_simulation_from_json(json_file: str, output_graph: bool = True) -> Simul
     # 1000ステップごとにログ出力するコールバック
     def _progress_callback(step: int, fraction: float) -> None:
         if step % 1 == 0:
-            logger.info(f"進捗: step={step}/{total_steps} ({fraction*100:.2f}%)")
+            logger.info(f"進捗: step={step}/{total_steps} ({fraction * 100:.2f}%)")
 
     simulation.execution(total_steps, step_size, callback=_progress_callback)
 
@@ -87,11 +87,7 @@ def run_simulation_from_json(json_file: str, output_graph: bool = True) -> Simul
             last_vel = velocity_values[-1]
             if last_vel is not None:
                 final_velocity = last_vel
-        logger.info(
-            f"  - {train.name}: "
-            f"最終位置={final_position:.2f}km, "
-            f"最終速度={final_velocity:.2f}km/h"
-        )
+        logger.info(f"  - {train.name}: 最終位置={final_position:.2f}km, 最終速度={final_velocity:.2f}km/h")
 
     # グラフ表示
     if output_graph:
@@ -105,7 +101,8 @@ def run_simulation_from_json(json_file: str, output_graph: bool = True) -> Simul
 def main():
     """メイン処理"""
     # サンプルJSONファイル
-    sample_json = Path("sample/json_io/sim.json")
+    # sample_json = Path("sample/json_io/sim.json")
+    sample_json = Path("datas/multi_train_simulation_model_generated.json")
 
     if sample_json.exists():
         logger.info(f"サンプルモデルを実行: {sample_json}")
