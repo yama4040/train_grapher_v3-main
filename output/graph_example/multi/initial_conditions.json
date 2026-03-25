@@ -4,13 +4,13 @@
     "name": "マルチ列車",
     "description": "",
     "author": "",
-    "created_at": "2026-03-13T11:47:47.805274",
-    "updated_at": "2026-03-13T11:47:47.805274"
+    "created_at": "2026-03-25T16:12:15.092279",
+    "updated_at": "2026-03-25T16:12:15.092279"
   },
   "simulation_config": {
     "step_size": 0.1,
-    "total_steps": 4000,
-    "block_system_type": "fixed"
+    "total_steps": 6000,
+    "block_system_type": "moving"
   },
   "line_shape": {
     "nodes": [
@@ -20,19 +20,19 @@
       },
       {
         "id": "node_end",
-        "offset": 15.0
+        "offset": 10.0
       }
     ],
     "edges": [
       {
         "id": "edge1",
-        "length": 15.0,
+        "length": 10.0,
         "start_node_id": "node_start",
         "end_node_id": "node_end",
         "grades": [
           {
             "start": 0.0,
-            "end": 15.0,
+            "end": 10.0,
             "grade": 0.0
           }
         ],
@@ -40,17 +40,17 @@
         "stations": [
           {
             "id": "station1",
-            "value": 3.0,
+            "value": 2.0,
             "name": "駅A"
           },
           {
             "id": "station2",
-            "value": 7.5,
+            "value": 4.0,
             "name": "駅B"
           },
           {
             "id": "station3",
-            "value": 12.0,
+            "value": 7.0,
             "name": "駅C"
           }
         ],
@@ -97,8 +97,8 @@
   },
   "trains": [
     {
-      "id": "急行列車",
-      "name": "急行列車",
+      "id": "普通列車",
+      "name": "普通列車",
       "route_edge_ids": [
         "edge1"
       ],
@@ -119,22 +119,22 @@
       "station_stop_times": [
         {
           "station_id": "station1",
-          "default_value": 20.0,
+          "default_value": 30.0,
           "departure_time": null
         },
         {
           "station_id": "station2",
-          "default_value": 20.0,
+          "default_value": 300.0,
           "departure_time": null
         },
         {
           "station_id": "station3",
-          "default_value": 20.0,
+          "default_value": 30.0,
           "departure_time": null
         }
       ],
       "end_condition": {
-        "position": 15.0,
+        "position": 10.0,
         "edge_id": "edge1"
       }
     },
@@ -150,33 +150,36 @@
       "end_edge_id": null,
       "end_position_value": null,
       "parameters": {
-        "wight": 320.5,
-        "factor_of_inertia": 22.0,
-        "decelerating_acceleration": -2.0,
-        "decelerating_acceleration_station": -3.0,
-        "fast_margine": 5.0,
-        "slow_margine": 18.0,
+        "wight": 389.85,
+        "factor_of_inertia": 24.54,
+        "decelerating_acceleration": -2.5,
+        "decelerating_acceleration_station": -3.5,
+        "fast_margine": 8.0,
+        "slow_margine": 12.0,
         "length": 0.2
       },
       "station_stop_times": [
         {
           "station_id": "station1",
-          "default_value": 40.0,
+          "default_value": 30.0,
           "departure_time": null
         },
         {
           "station_id": "station2",
-          "default_value": 40.0,
+          "default_value": 30.0,
           "departure_time": null
         },
         {
           "station_id": "station3",
-          "default_value": 40.0,
+          "default_value": 300.0,
           "departure_time": null
         }
       ],
+      "start_condition": {
+        "step": 1200
+      },
       "end_condition": {
-        "position": 15.0,
+        "position": 10.0,
         "edge_id": "edge1"
       }
     }

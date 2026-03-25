@@ -79,8 +79,8 @@ def example_diagram_range() -> None:
 
     plot_diagram(
         result,
-        time_range=(0, 200),  # 0〜200秒
-        position_range=(0, 5),  # 0〜5km
+        time_range=(0, 400),  # 0〜400秒
+        position_range=(0, 10),  # 0〜10km
         show=False,
     )
     plt.suptitle("ダイヤ図（時間帯・区間指定）")
@@ -128,7 +128,7 @@ def example_running_curve_multi() -> None:
 
     plot_running_curve(
         specs,
-        position_range=(0, 5),  # 0〜5km の区間
+        position_range=(0, 10),  # 0〜10km の区間
         show=False,
     )
     plt.suptitle("ランカーブ（複数列車・複数シミュレーション重ね合わせ）")

@@ -34,16 +34,16 @@ def save_simple_simulation_model():
     grades = [Grade(start=0.0, end=10.0, grade=0.0)]
 
     # 駅の作成
-    station1 = Station(id="station1", value=2.0, name="第一駅")
-    station2 = Station(id="station2", value=5.0, name="第二駅")
-    station3 = Station(id="station3", value=8.0, name="第三駅")
+    station1 = Station(id="station1", value=2.0, name="A駅")
+    station2 = Station(id="station2", value=4.0, name="B駅")
+    station3 = Station(id="station3", value=7.0, name="C駅")
 
     # 閉塞の作成（固定閉塞システム）
     blocks = [
-        Block(start=0.0, speed_limits=[25, 45, 80, 120]),
-        Block(start=2.5, speed_limits=[25, 45, 80, 120]),
-        Block(start=5.0, speed_limits=[25, 45, 80, 120]),
-        Block(start=7.5, speed_limits=[25, 45, 80, 120]),
+        Block(start=0.0, speed_limits=[20, 40, 70, 100]),
+        Block(start=3.75, speed_limits=[20, 40, 70, 100]),
+        Block(start=7.5, speed_limits=[20, 40, 70, 100]),
+        Block(start=11.25, speed_limits=[20, 40, 70, 100]),
     ]
 
     # エッジの作成（10kmの直線路）
@@ -106,7 +106,7 @@ def save_simple_simulation_model():
         line_shape=line_shape,
         trains=[train],
         step_size=0.1,
-        total_steps=3000,
+        total_steps=6000,
         name="シンプルシミュレーション（自動生成）",
         description="既存のsimple_simulation_exampleをJSON形式で保存したもの",
         author="train_grapher_v3",
@@ -123,9 +123,7 @@ def save_simple_simulation_model():
     logger.info("保存したJSONを読込んで検証中...")
     logger.info("=" * 60)
 
-    loaded_line_shape, loaded_trains, step_size, total_steps, block_system_type = load_simulation_model(
-        output_file
-    )
+    loaded_line_shape, loaded_trains, step_size, total_steps, block_system_type = load_simulation_model(output_file)
 
     logger.info("検証結果:")
     logger.info(f"  - ステップサイズ: {step_size} 秒")
@@ -154,15 +152,15 @@ def save_multi_train_simulation_model():
 
     # ノードの作成
     node_start = Node("node_start", offset=0.0)
-    node_end = Node("node_end", offset=15.0)
+    node_end = Node("node_end", offset=10.0)
 
     # 勾配情報（フラット）
-    grades = [Grade(start=0.0, end=15.0, grade=0.0)]
+    grades = [Grade(start=0.0, end=10.0, grade=0.0)]
 
     # 駅の作成
-    station1 = Station(id="station1", value=3.0, name="駅A")
-    station2 = Station(id="station2", value=7.5, name="駅B")
-    station3 = Station(id="station3", value=12.0, name="駅C")
+    station1 = Station(id="station1", value=2.0, name="駅A")
+    station2 = Station(id="station2", value=4.0, name="駅B")
+    station3 = Station(id="station3", value=7.0, name="駅C")
 
     # 閉塞の作成
     blocks = [
@@ -172,10 +170,10 @@ def save_multi_train_simulation_model():
         Block(start=11.25, speed_limits=[20, 40, 70, 100]),
     ]
 
-    # エッジの作成（15kmの直線路）
+    # エッジの作成（10kmの直線路）
     edge1 = Edge(
         id="edge1",
-        length=15.0,
+        length=10.0,
         start_node=node_start,
         end_node=node_end,
         grade=grades,
@@ -188,31 +186,33 @@ def save_multi_train_simulation_model():
     line_shape = LineShape(nodes=[node_start, node_end], edges=[edge1])
 
     # ========================================
-    # 列車1の作成（急行）
+    # 列車1の作成
     # ========================================
     route = line_shape.get_route(["edge1"])
 
     train_param_1 = TrainParameter(
-        wight=389.85,
-        factor_of_inertia=24.54,
-        decelerating_acceleration=-2.5,
-        decelerating_acceleration_station=-3.5,
-        fast_margine=8.0,
-        slow_margine=12.0,
+        wight=389.85,  # 総重量（ton）
+        factor_of_inertia=24.54,  # 慣性係数（重量に対する慣性の大きさを表す。0～1の値で、値が小さいほど加減速が速い）
+        decelerating_acceleration=-2.5,  # 通常の減速時の加速度（m/s²、負の値で表す）
+        decelerating_acceleration_station=-3.5,  # 駅停車時の減速加速度（m/s²、負の値で表す）
+        fast_margine=8.0,  # 高速マージン（m/s²、加速時の余裕を表す。値が大きいほど加速が速くなる）
+        slow_margine=12.0,  # 低速マージン（m/s²、減速時の余裕を表す。値が大きいほど減速が速くなる）
     )
 
+    # 駅停車時間の設定（各駅30秒停車）
     station_stop_times_1 = [
-        StationStopTime(station_id="station1", default_value=20.0),
-        StationStopTime(station_id="station2", default_value=20.0),
-        StationStopTime(station_id="station3", default_value=20.0),
+        StationStopTime(station_id="station1", default_value=30.0),
+        StationStopTime(station_id="station2", default_value=300.0),
+        StationStopTime(station_id="station3", default_value=30.0),
     ]
 
+    # 列車1の作成
     train1 = Train(
-        name="急行列車",
+        name="普通列車",
         line_shape=line_shape,
         route=route,
         train_parameter=train_param_1,
-        station_stop_times=station_stop_times_1,
+        station_stop_times=station_stop_times_1,  # 停車パターン
     )
 
     # ========================================
@@ -228,18 +228,28 @@ def save_multi_train_simulation_model():
     )
 
     station_stop_times_2 = [
-        StationStopTime(station_id="station1", default_value=40.0),
-        StationStopTime(station_id="station2", default_value=40.0),
-        StationStopTime(station_id="station3", default_value=40.0),
+        StationStopTime(station_id="station1", default_value=30.0),
+        StationStopTime(station_id="station2", default_value=30.0),
+        StationStopTime(station_id="station3", default_value=300.0),
     ]
 
     train2 = Train(
         name="普通列車",
         line_shape=line_shape,
         route=route,
-        train_parameter=train_param_2,
+        train_parameter=train_param_1,
         station_stop_times=station_stop_times_2,
     )
+
+    # ========================================
+    # 出発間隔の設定
+    # ========================================
+    departure_interval = 120.0  # 列車1と列車2の出発間隔（秒）
+    step_size = 0.1  # シミュレーションのステップサイズ（秒）
+    start_step = int(departure_interval / step_size)  # 列車2の出発ステップ
+
+    # 後続列車に出発タイミングを設定
+    train2.set_start_condition(step=start_step, position=None)
 
     # ========================================
     # JSON形式で保存
@@ -252,11 +262,11 @@ def save_multi_train_simulation_model():
         line_shape=line_shape,
         trains=[train1, train2],
         step_size=0.1,
-        total_steps=4000,
-        name="複数列車シミュレーション（自動生成）",
+        total_steps=6000,
+        name="複数列車シミュレーション_テストサンプル（移動閉塞）",
         description="2両の列車が同じ路線を走行するシミュレーション",
         author="train_grapher_v3",
-        block_system_type="fixed",
+        block_system_type="moving",  # fixed：固定閉塞，moving：移動閉塞
     )
 
     logger.info(f"保存完了: {output_file}")
@@ -269,15 +279,13 @@ def save_multi_train_simulation_model():
     logger.info("保存したJSONを読込んで検証中...")
     logger.info("=" * 60)
 
-    loaded_line_shape, loaded_trains, step_size, total_steps, block_system_type = load_simulation_model(
-        output_file
-    )
+    loaded_line_shape, loaded_trains, step_size, total_steps, block_system_type = load_simulation_model(output_file)
 
     logger.info("検証結果:")
     logger.info(f"  - 列車数: {len(loaded_trains)}")
     for train in loaded_trains:
         logger.info(f"  列車: {train.name}")
-        logger.info(f"    - 初期位置: 0.0 km")
+        logger.info("    - 初期位置: 0.0 km")
         logger.info(f"    - 加速度: {train._train_parameter.decelerating_acceleration} m/s²")
 
 
