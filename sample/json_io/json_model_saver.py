@@ -46,10 +46,10 @@ def save_simple_simulation_model():
         Block(start=11.25, speed_limits=[20, 40, 70, 100]),
     ]
 
-    # エッジの作成（10kmの直線路）
+    # エッジの作成（7kmの直線路）
     edge1 = Edge(
         id="edge1",
-        length=10.0,
+        length=7.0,
         start_node=node_start,
         end_node=node_end,
         grade=grades,
@@ -170,10 +170,10 @@ def save_multi_train_simulation_model():
         Block(start=11.25, speed_limits=[20, 40, 70, 100]),
     ]
 
-    # エッジの作成（10kmの直線路）
+    # エッジの作成（7kmの直線路）
     edge1 = Edge(
         id="edge1",
-        length=10.0,
+        length=7.0,
         start_node=node_start,
         end_node=node_end,
         grade=grades,
@@ -202,13 +202,13 @@ def save_multi_train_simulation_model():
     # 駅停車時間の設定（各駅30秒停車）
     station_stop_times_1 = [
         StationStopTime(station_id="station1", default_value=30.0),
-        StationStopTime(station_id="station2", default_value=300.0),
+        StationStopTime(station_id="station2", default_value=30.0),
         StationStopTime(station_id="station3", default_value=30.0),
     ]
 
     # 列車1の作成
     train1 = Train(
-        name="普通列車",
+        name="普通列車1",
         line_shape=line_shape,
         route=route,
         train_parameter=train_param_1,
@@ -230,11 +230,11 @@ def save_multi_train_simulation_model():
     station_stop_times_2 = [
         StationStopTime(station_id="station1", default_value=30.0),
         StationStopTime(station_id="station2", default_value=30.0),
-        StationStopTime(station_id="station3", default_value=300.0),
+        StationStopTime(station_id="station3", default_value=30.0),
     ]
 
     train2 = Train(
-        name="普通列車",
+        name="普通列車2",
         line_shape=line_shape,
         route=route,
         train_parameter=train_param_1,
