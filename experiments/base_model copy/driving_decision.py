@@ -135,16 +135,3 @@ class BaseModelDrivingDecision(DefaultDrivingDecision):
             return False
 
         return True
-
-# 学習済みモデルを使って検証するためのクラス例
-class RLDrivingDecision(DrivingDecision):
-    def __init__(self, model_path=None):
-        self.model = self._load_model(model_path) # PPOモデルのロード
-
-    def decide(self, train, step, signal_instruction):
-        # 1. 状態(Observation)の構築
-        obs = self._make_observation(train, step, signal_instruction)
-        # 2. モデルによるアクション推論
-        action, _ = self.model.predict(obs)
-        # 3. アクションをシミュレータのStatusに変換
-        return self._translate_action_to_status(action)
