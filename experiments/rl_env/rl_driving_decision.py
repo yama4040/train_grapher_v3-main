@@ -2,19 +2,21 @@ from train_grapher_v3.core.driving_decision import DrivingDecision
 from train_grapher_v3.core.status import Status
 
 class RLDrivingDecision(DrivingDecision):
-    """強化学習エージェントの行動をシミュレータに伝えるためのクラス"""
-
     def __init__(self):
         super().__init__()
-        # エージェントが選択した最新のアクションを保持する
         self.current_action = 0
+        # 追加：最新の制限速度(km/h)を保持する変数
+        self.last_signal_speed = 100.0 
 
     def set_action(self, action: int):
-        """Envのstep()関数からアクションをセットするためのメソッド"""
         self.current_action = action
 
     def decide(self, train, step: int, signal_instruction) -> int:
-        """シミュレータから毎ステップ呼ばれ、Statusを返す"""
+        # 追加：シミュレータから渡された最新の制限速度を保存
+        if signal_instruction and signal_instruction.instruction_speed is not None:
+            self.last_signal_speed = signal_instruction.instruction_speed
+        else:
+            self.last_signal_speed = 100.0 # 制限なしの場合はデフォルト100km/h
         
         # 定義した5つの行動（0~4）をシミュレータのStatusにマッピングする
         if self.current_action == 0:

@@ -85,8 +85,8 @@ class TrainEnv(gym.Env):
         velocity = self.target_train.get_running_data().get_velocity(self.current_step - 1) or 0.0
         
         # 制限速度（信号情報などから取得。実装はシミュレータの仕様に合わせる必要があります）
-        signal = self.line._block_system.get_signal_instruction(self.target_train, self.current_step - 1)
-        speed_limit = signal.speed_limit if signal else 100.0 # 仮のデフォルト値
+        #signal = self.line._block_system._get_signal_instruction(self.target_train, self.current_step - 1)
+        speed_limit = self.rl_decision.last_signal_speed / 3.6 # km/h → m/s に変換
 
         # 次の駅までの情報
         next_station, distance_to_station = self.target_train.get_next_station_info(self.current_step)
@@ -113,18 +113,25 @@ class TrainEnv(gym.Env):
         }
 
     def default_reward_fn(self, obs, action, info, done):
-        """ベースラインとなるシンプルな報酬関数（後でLLMに設計させる部分）"""
         velocity, speed_limit, distance, time_left = obs
         reward = 0.0
         
-        # 制限速度超過ペナルティ
+        # 1. 制限速度超過ペナルティ（絶対ルール）
         if velocity > speed_limit:
             reward -= 10.0
             
-        # 駅到着時の評価（ざっくりとした例）
+        # 2. 前進ボーナス（安全に走っていることへのご褒美）
+        if velocity > 0.5 and velocity <= speed_limit:
+            reward += 0.1 
+
+        # 3. 【新・引きこもり対策】青信号でのサボりペナルティ
+        # 制限速度が5km/h以上（発車OK）なのに、速度が1km/h未満で止まっている場合
+        if speed_limit > 5.0 and velocity < 1.0:
+            reward -= 0.5  # 「青信号だぞ！進め！」という減点
+
+        # 4. 駅到着時の評価
         if distance < 5.0 and velocity < 1.0: 
-            reward += 100.0 # 駅に止まれた
-            # 定刻性（time_leftが0に近いほど良い）
+            reward += 100.0 
             reward -= abs(time_left) * 0.1 
 
-        return reward
+        return float(reward)

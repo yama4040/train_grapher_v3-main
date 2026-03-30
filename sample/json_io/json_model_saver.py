@@ -106,7 +106,7 @@ def save_simple_simulation_model():
         line_shape=line_shape,
         trains=[train],
         step_size=0.1,
-        total_steps=6000,
+        total_steps=12000,
         name="シンプルシミュレーション（自動生成）",
         description="既存のsimple_simulation_exampleをJSON形式で保存したもの",
         author="train_grapher_v3",
@@ -165,8 +165,8 @@ def save_multi_train_simulation_model():
     # 閉塞の作成
     blocks = [
         Block(start=0.0, speed_limits=[20, 40, 70, 100]),
-        Block(start=3.75, speed_limits=[20, 40, 70, 100]),
-        Block(start=7.5, speed_limits=[20, 40, 70, 100]),
+        Block(start=3.75, speed_limits=[20, 40, 70, 80]),
+        Block(start=4.0, speed_limits=[20, 40, 70, 95]),
         Block(start=11.25, speed_limits=[20, 40, 70, 100]),
     ]
 
@@ -262,7 +262,7 @@ def save_multi_train_simulation_model():
         line_shape=line_shape,
         trains=[train1, train2],
         step_size=0.1,
-        total_steps=6000,
+        total_steps=12000,
         name="複数列車シミュレーション_テストサンプル（移動閉塞）",
         description="2両の列車が同じ路線を走行するシミュレーション",
         author="train_grapher_v3",
