@@ -20,7 +20,7 @@ def main():
     # 1. 環境とモデルの読み込み
     # ==========================================
     json_path = "datas/multi_train_simulation_model_generated.json"
-    target_train_name = "普通列車2"  # ※JSONに合わせる
+    target_train_name = "普通列車2"  # ★修正済みの列車名
     model_path = "./output/models/ppo_baseline_model.zip"
 
     if not os.path.exists(model_path):
@@ -39,7 +39,6 @@ def main():
     obs, info = env.reset()
     done = False
     
-    # グラフ描画用のデータ保存リスト
     times = []
     positions = []
     velocities = []
@@ -47,55 +46,62 @@ def main():
     speed_limits = []
 
     while not done:
-        # AIが現在の観測(obs)から最適な行動を推論
-        # deterministic=True にすることで、ランダムな探索をせず最も自信のある行動を選ばせます
         action, _states = model.predict(obs, deterministic=True)
-        
-        # 行動を実行して1ステップ進める
         obs, reward, done, truncated, info = env.step(action)
         
-        # 記録用にデータを抽出
-        current_step = info["step"]
         current_time = info["time"]
-        position = info["train_position"]
-        # obs = [velocity, speed_limit, distance, time_left] (train_env.py の定義より)
-        velocity = obs[0] * 3.6     # m/s -> km/h に変換して見やすくする
-        speed_limit = obs[1] * 3.6  # m/s -> km/h に変換
+        velocity = obs[0] * 3.6     
+        speed_limit = obs[1] * 3.6  
+        
+        # ★追加: Positionオブジェクトから「距離(km)」の数値だけを安全に抽出
+        pos_obj = info["train_position"]
+        if hasattr(pos_obj, "value"):
+            pos_km = pos_obj.value
+        else:
+            pos_km = 0.0 # エラー回避用のフォールバック
         
         times.append(current_time)
-        positions.append(position)
+        positions.append(pos_km)
         velocities.append(velocity)
         actions_taken.append(action)
         speed_limits.append(speed_limit)
 
-    # 修正： positions[-1] の :.2f を削除し、そのまま文字として表示させる
-    logger.info(f"テスト走行完了！ (総時間: {times[-1]:.1f} 秒, 最終位置: {positions[-1]})")
+    logger.info(f"テスト走行完了！ (総時間: {times[-1]:.1f} 秒, 到達距離: {positions[-1]:.2f} km)")
 
     # ==========================================
-    # 3. 走行結果のグラフ化（ランカーブ）
+    # 3. 走行結果のグラフ化（2つのウィンドウを表示）
     # ==========================================
     logger.info("走行結果のグラフを描画します...")
     
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
-    
-    # 上段：速度と制限速度（★横軸を times に変更）
-    ax1.plot(times, speed_limits, color='red', linestyle='--', alpha=0.7, label='Speed Limit (km/h)')
-    ax1.plot(times, velocities, color='blue', linewidth=2, label='Train Velocity (km/h)')
+    # 【グラフ1】 距離ベース（鉄道本来のランカーブ）
+    fig1, ax1 = plt.subplots(figsize=(12, 5))
+    ax1.plot(positions, speed_limits, color='red', linestyle='--', alpha=0.7, label='Speed Limit (km/h)')
+    ax1.plot(positions, velocities, color='blue', linewidth=2, label='Train Velocity (km/h)')
+    ax1.set_xlabel('Distance (km)')
     ax1.set_ylabel('Speed (km/h)')
-    ax1.set_title('AI Driving Result: Run Curve & Notch Operations (Time-based)')
+    ax1.set_title('AI Driving Result: Run Curve (Distance-based)')
     ax1.grid(True, linestyle=':', alpha=0.6)
     ax1.legend()
+    fig1.tight_layout()
 
-    # 下段：ノッチ操作（★横軸を times に変更）
-    ax2.step(times, actions_taken, color='green', where='post', label='Action (Notch)')
-    ax2.set_yticks([0, 1, 2, 3, 4])
-    ax2.set_yticklabels(['Power (0)', 'Coast (1)', 'Station Brk (2)', 'Hold Spd (3)', 'Max Brk (4)'])
-    ax2.set_xlabel('Time (s)') # ★横軸のラベルを時間に変更
-    ax2.set_ylabel('Action')
-    ax2.grid(True, linestyle=':', alpha=0.6)
+    # 【グラフ2】 時間ベース（速度とノッチ操作の履歴）
+    fig2, (ax2_speed, ax2_action) = plt.subplots(2, 1, figsize=(12, 8), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+    ax2_speed.plot(times, speed_limits, color='red', linestyle='--', alpha=0.7, label='Speed Limit (km/h)')
+    ax2_speed.plot(times, velocities, color='blue', linewidth=2, label='Train Velocity (km/h)')
+    ax2_speed.set_ylabel('Speed (km/h)')
+    ax2_speed.set_title('AI Driving Result: Run Curve & Notch (Time-based)')
+    ax2_speed.grid(True, linestyle=':', alpha=0.6)
+    ax2_speed.legend()
+
+    ax2_action.step(times, actions_taken, color='green', where='post', label='Action (Notch)')
+    ax2_action.set_yticks([0, 1, 2, 3, 4])
+    ax2_action.set_yticklabels(['Power (0)', 'Coast (1)', 'Station Brk (2)', 'Hold Spd (3)', 'Max Brk (4)'])
+    ax2_action.set_xlabel('Time (s)')
+    ax2_action.set_ylabel('Action')
+    ax2_action.grid(True, linestyle=':', alpha=0.6)
+    fig2.tight_layout()
     
-    plt.tight_layout()
-    print("\n📊 ランカーブを描画しました。ウィンドウを閉じるとプログラムが終了します。")
+    print("\n📊 距離ベースと時間ベース、2つのグラフを描画しました。ウィンドウを閉じるとプログラムが終了します。")
     plt.show()
 
 if __name__ == "__main__":

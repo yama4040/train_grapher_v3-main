@@ -37,14 +37,18 @@ class TrainEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
-        # 1. JSONモデルの読み込み
+        # ★追加：一度止まった駅のIDを記録するリスト
+        self.visited_stations = set()
+        self.current_station_id = None
+        
+        # ★追加：前回のノッチ操作を記憶する変数
+        self.previous_action = None
+
         line_shape, trains, self.step_size, self.total_steps, block_system_type = load_simulation_model(self.json_path)
         
-        # 2. 対象の列車にRLDrivingDecisionをセット
         self.target_train = next(t for t in trains if t.name == self.target_train_name)
         self.target_train._driving_decision = self.rl_decision
 
-        # 3. 閉塞システムと路線の初期化
         if block_system_type == "moving":
             block_system = MovingBlockSystem(line_shape)
         else:
@@ -52,6 +56,23 @@ class TrainEnv(gym.Env):
             
         self.line = Line(line_shape=line_shape, trains=trains, block_system=block_system)
         self.current_step = 0
+
+        # ==================================================
+        # ★修正：確実な早送り処理（普通列車2なら強制的に1200ステップ進める）
+        # ==================================================
+        start_step = 1200 if self.target_train.name == "普通列車2" else 0
+        self.rl_decision.set_action(2) 
+
+        while self.current_step < start_step:
+            self.line.calculate_step(self.current_step, self.step_size)
+            self.current_step += 1
+
+        while self.current_step < self.total_steps:
+            self.line.calculate_step(self.current_step, self.step_size)
+            if self.rl_decision.last_signal_speed > 0:
+                break
+            self.current_step += 1
+        # ==================================================
 
         obs = self._get_obs()
         info = self._get_info()
@@ -77,27 +98,25 @@ class TrainEnv(gym.Env):
         return obs, reward, done, truncated, info
 
     def _get_obs(self) -> np.ndarray:
-        """観測値の取得"""
         if self.current_step == 0:
             return np.zeros(4, dtype=np.float32)
 
-        # 現在の速度
         velocity = self.target_train.get_running_data().get_velocity(self.current_step - 1) or 0.0
-        
-        # 制限速度（信号情報などから取得。実装はシミュレータの仕様に合わせる必要があります）
-        #signal = self.line._block_system._get_signal_instruction(self.target_train, self.current_step - 1)
-        speed_limit = self.rl_decision.last_signal_speed / 3.6 # km/h → m/s に変換
+        speed_limit = self.rl_decision.last_signal_speed / 3.6 
 
-        # 次の駅までの情報
         next_station, distance_to_station = self.target_train.get_next_station_info(self.current_step)
         distance = distance_to_station if distance_to_station is not None else 0.0
 
-        # 目標到着時刻までの残り時間（簡易計算）
+        # ★追加：現在目指している駅のIDを保存しておく（報酬計算で使うため）
+        if next_station is not None:
+            self.current_station_id = next_station.id
+        else:
+            self.current_station_id = "end"
+
         time_left = 0.0
         if next_station is not None:
             stop_time_info = self.target_train.get_station_stop_time(next_station.id)
             if stop_time_info and stop_time_info.departure_time:
-                # 出発時刻 - (停車時間) - 現在時刻 = 到着目標時刻までの残り時間
                 target_arrival = stop_time_info.departure_time - stop_time_info.default_value
                 current_time = self.current_step * self.step_size
                 time_left = target_arrival - current_time
@@ -113,25 +132,60 @@ class TrainEnv(gym.Env):
         }
 
     def default_reward_fn(self, obs, action, info, done):
+        import math # (ファイルの先頭に書いてもOKです)
         velocity, speed_limit, distance, time_left = obs
         reward = 0.0
         
-        # 1. 制限速度超過ペナルティ（絶対ルール）
+        # ==========================================
+        # 1. 安全な「目標速度」の計算（ATOブレーキパターン）
+        # ==========================================
+        # 駅の5m手前に、減速度 2.0 m/s^2 で滑らかに止まるための理想速度を計算
+        brake_distance = max(0.0, distance - 5.0)
+        # 物理公式: v = sqrt(2 * a * x)
+        safe_approach_speed = math.sqrt(2.0 * 2.0 * brake_distance) 
+        
+        # 「信号の制限速度」と「駅へのブレーキ速度」のうち、厳しい方を目標にする
+        target_speed = min(speed_limit, safe_approach_speed)
+
+        # ==========================================
+        # 2. 速度の評価（目標速度への追従）
+        # ==========================================
         if velocity > speed_limit:
-            reward -= 10.0
+            reward -= 10.0  # 信号無視・速度超過は一発アウト級の減点
+        elif velocity > target_speed + 2.0:
+            reward -= 5.0   # 駅をオーバーランしそうなスピードも強く減点
+        else:
+            # 目標速度に対して、近いほど加点、遠いほど減点
+            speed_diff = abs(target_speed - velocity)
+            reward += max(0.0, 1.0 - (speed_diff / 5.0)) 
             
-        # 2. 前進ボーナス（安全に走っていることへのご褒美）
-        if velocity > 0.5 and velocity <= speed_limit:
-            reward += 0.1 
+            # ダラダラ這いずるのを防ぐ（最低限のスピードを要求）
+            if velocity < 1.0 and target_speed > 5.0:
+                reward -= 0.5
 
-        # 3. 【新・引きこもり対策】青信号でのサボりペナルティ
-        # 制限速度が5km/h以上（発車OK）なのに、速度が1km/h未満で止まっている場合
-        if speed_limit > 5.0 and velocity < 1.0:
-            reward -= 0.5  # 「青信号だぞ！進め！」という減点
+        # ==========================================
+        # 3. 乗り心地と省エネ（ガチャガチャ運転の禁止）
+        # ==========================================
+        if self.previous_action is not None:
+            if action != self.previous_action:
+                # ノッチを切り替えるたびに減点（= 無駄なエネルギーと揺れへの罰則）
+                reward -= 0.2
+        self.previous_action = action # 次のステップのために記憶を更新
 
-        # 4. 駅到着時の評価
-        if distance < 5.0 and velocity < 1.0: 
-            reward += 100.0 
-            reward -= abs(time_left) * 0.1 
+        # ==========================================
+        # 4. 駅の停車と終点到達のボーナス
+        # ==========================================
+        if distance < 10.0 and velocity < 1.0:
+            if self.current_station_id not in self.visited_stations:
+                reward += 300.0  
+                self.visited_stations.add(self.current_station_id)
+
+        if done:
+            current_position = info["train_position"]
+            pos_km = current_position.value if hasattr(current_position, "value") else 0.0
+            if pos_km > 6.5:
+                reward += 1000.0
+            else:
+                reward -= 500.0
 
         return float(reward)
