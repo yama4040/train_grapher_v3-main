@@ -1,5 +1,5 @@
 {
-  "saved_at": "2026-03-31T23:11:25.920175",
+  "saved_at": "2026-04-01T01:31:09.843375",
   "simulation_config": {
     "step_size": 0.1,
     "total_steps": 12000,
@@ -11,10 +11,10 @@
       "total_recorded_steps": 12000,
       "start_step": 0,
       "start_time_s": 0.0,
-      "end_step": 1340,
-      "end_time_s": 134.0,
-      "max_velocity_kmh": 94.037,
-      "average_velocity_kmh": 69.193,
+      "end_step": 4094,
+      "end_time_s": 409.4,
+      "max_velocity_kmh": 94.048,
+      "average_velocity_kmh": 72.1,
       "final_position_km": null,
       "final_edge_id": null
     }
