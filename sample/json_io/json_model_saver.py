@@ -35,8 +35,8 @@ def save_simple_simulation_model():
 
     # 駅の作成
     station1 = Station(id="station1", value=2.0, name="A駅")
-    station2 = Station(id="station2", value=4.0, name="B駅")
-    station3 = Station(id="station3", value=7.0, name="C駅")
+    #station2 = Station(id="station2", value=4.0, name="B駅")
+    #station3 = Station(id="station3", value=7.0, name="C駅")
 
     # 閉塞の作成（固定閉塞システム）
     blocks = [
@@ -54,7 +54,8 @@ def save_simple_simulation_model():
         end_node=node_end,
         grade=grades,
         curve=[],
-        stations=[station1, station2, station3],
+        #stations=[station1, station2, station3],
+        stations=[station1],
         block_list=blocks,
     )
 
@@ -82,8 +83,8 @@ def save_simple_simulation_model():
     # 駅停車時間の設定（各駅30秒停車）
     station_stop_times = [
         StationStopTime(station_id="station1", default_value=30.0),
-        StationStopTime(station_id="station2", default_value=30.0),
-        StationStopTime(station_id="station3", default_value=30.0),
+        #StationStopTime(station_id="station2", default_value=30.0),
+        #StationStopTime(station_id="station3", default_value=30.0),
     ]
 
     # 列車の作成
@@ -159,8 +160,8 @@ def save_multi_train_simulation_model():
 
     # 駅の作成
     station1 = Station(id="station1", value=2.0, name="駅A")
-    station2 = Station(id="station2", value=4.0, name="駅B")
-    station3 = Station(id="station3", value=7.0, name="駅C")
+    #station2 = Station(id="station2", value=4.0, name="駅B")
+    #station3 = Station(id="station3", value=7.0, name="駅C")
 
     # 閉塞の作成
     blocks = [
@@ -178,7 +179,8 @@ def save_multi_train_simulation_model():
         end_node=node_end,
         grade=grades,
         curve=[],
-        stations=[station1, station2, station3],
+        #stations=[station1, station2, station3],
+        stations=[station1],
         block_list=blocks,
     )
 
@@ -199,11 +201,11 @@ def save_multi_train_simulation_model():
         slow_margine=12.0,  # 低速マージン（m/s²、減速時の余裕を表す。値が大きいほど減速が速くなる）
     )
 
-    # 駅停車時間の設定（各駅30秒停車）
+    # 駅停車時間の設定（各駅30秒停車）,駅0→駅1：95sec
     station_stop_times_1 = [
-        StationStopTime(station_id="station1", default_value=30.0),
-        StationStopTime(station_id="station2", default_value=30.0),
-        StationStopTime(station_id="station3", default_value=30.0),
+        StationStopTime(station_id="station1", default_value=30.0, departure_time=125.0),
+        #StationStopTime(station_id="station2", default_value=30.0),
+        #StationStopTime(station_id="station3", default_value=30.0),
     ]
 
     # 列車1の作成
@@ -213,6 +215,7 @@ def save_multi_train_simulation_model():
         route=route,
         train_parameter=train_param_1,
         station_stop_times=station_stop_times_1,  # 停車パターン
+        use_timetable=True,
     )
 
     # ========================================
@@ -228,9 +231,9 @@ def save_multi_train_simulation_model():
     )
 
     station_stop_times_2 = [
-        StationStopTime(station_id="station1", default_value=30.0),
-        StationStopTime(station_id="station2", default_value=30.0),
-        StationStopTime(station_id="station3", default_value=30.0),
+        StationStopTime(station_id="station1", default_value=30.0, departure_time=305.0),
+        #StationStopTime(station_id="station2", default_value=30.0),
+        #StationStopTime(station_id="station3", default_value=30.0),
     ]
 
     train2 = Train(
@@ -239,12 +242,13 @@ def save_multi_train_simulation_model():
         route=route,
         train_parameter=train_param_1,
         station_stop_times=station_stop_times_2,
+        use_timetable=True,
     )
 
     # ========================================
     # 出発間隔の設定
     # ========================================
-    departure_interval = 120.0  # 列車1と列車2の出発間隔（秒）
+    departure_interval = 180.0  # 列車1と列車2の出発間隔（秒）
     step_size = 0.1  # シミュレーションのステップサイズ（秒）
     start_step = int(departure_interval / step_size)  # 列車2の出発ステップ
 

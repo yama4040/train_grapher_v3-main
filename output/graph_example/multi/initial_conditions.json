@@ -4,8 +4,8 @@
     "name": "マルチ列車",
     "description": "",
     "author": "",
-    "created_at": "2026-04-01T01:31:10.041782",
-    "updated_at": "2026-04-01T01:31:10.041782"
+    "created_at": "2026-04-10T22:38:34.200096",
+    "updated_at": "2026-04-10T22:38:34.200096"
   },
   "simulation_config": {
     "step_size": 0.1,
@@ -42,16 +42,6 @@
             "id": "station1",
             "value": 2.0,
             "name": "駅A"
-          },
-          {
-            "id": "station2",
-            "value": 4.0,
-            "name": "駅B"
-          },
-          {
-            "id": "station3",
-            "value": 7.0,
-            "name": "駅C"
           }
         ],
         "blocks": [
@@ -104,7 +94,7 @@
       ],
       "initial_position": 0.0,
       "initial_velocity": 0.0,
-      "use_timetable": false,
+      "use_timetable": true,
       "end_edge_id": null,
       "end_position_value": null,
       "parameters": {
@@ -120,17 +110,7 @@
         {
           "station_id": "station1",
           "default_value": 30.0,
-          "departure_time": null
-        },
-        {
-          "station_id": "station2",
-          "default_value": 30.0,
-          "departure_time": null
-        },
-        {
-          "station_id": "station3",
-          "default_value": 30.0,
-          "departure_time": null
+          "departure_time": 125.0
         }
       ],
       "end_condition": {
@@ -146,7 +126,7 @@
       ],
       "initial_position": 0.0,
       "initial_velocity": 0.0,
-      "use_timetable": false,
+      "use_timetable": true,
       "end_edge_id": null,
       "end_position_value": null,
       "parameters": {
@@ -162,21 +142,11 @@
         {
           "station_id": "station1",
           "default_value": 30.0,
-          "departure_time": null
-        },
-        {
-          "station_id": "station2",
-          "default_value": 30.0,
-          "departure_time": null
-        },
-        {
-          "station_id": "station3",
-          "default_value": 30.0,
-          "departure_time": null
+          "departure_time": 305.0
         }
       ],
       "start_condition": {
-        "step": 1200
+        "step": 1800
       },
       "end_condition": {
         "position": 7.0,

@@ -4,8 +4,8 @@
     "name": "シンプル",
     "description": "",
     "author": "",
-    "created_at": "2026-04-01T01:31:09.841875",
-    "updated_at": "2026-04-01T01:31:09.841875"
+    "created_at": "2026-04-10T22:38:34.055314",
+    "updated_at": "2026-04-10T22:38:34.055314"
   },
   "simulation_config": {
     "step_size": 0.1,
@@ -42,16 +42,6 @@
             "id": "station1",
             "value": 2.0,
             "name": "A駅"
-          },
-          {
-            "id": "station2",
-            "value": 4.0,
-            "name": "B駅"
-          },
-          {
-            "id": "station3",
-            "value": 7.0,
-            "name": "C駅"
           }
         ],
         "blocks": [
@@ -119,16 +109,6 @@
       "station_stop_times": [
         {
           "station_id": "station1",
-          "default_value": 30.0,
-          "departure_time": null
-        },
-        {
-          "station_id": "station2",
-          "default_value": 30.0,
-          "departure_time": null
-        },
-        {
-          "station_id": "station3",
           "default_value": 30.0,
           "departure_time": null
         }

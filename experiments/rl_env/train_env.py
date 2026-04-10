@@ -92,7 +92,19 @@ class TrainEnv(gym.Env):
         info = self._get_info()
 
         # 4. 報酬の計算 (LLM生成の関数を呼ぶ想定)
-        reward = self.reward_fn(obs, action, info, done)
+        reward, reward_components = self.reward_fn(obs, action, info, done)
+        
+        # ==========================================
+        # ★ 追加：報酬成分の履歴を保存
+        # ==========================================
+        if not hasattr(self, 'reward_history'):
+            self.reward_history = []
+        self.reward_history.append(reward_components)
+
+        # エピソード終了時（done=True）にCSVへ集計・保存する
+        if done:
+            self._save_reward_to_csv()
+            self.reward_history = [] # 次のエピソードに向けてリセット
 
         truncated = False # タイムアウトなどの打ち切りフラグ（今回は不使用）
         return obs, reward, done, truncated, info
@@ -130,62 +142,166 @@ class TrainEnv(gym.Env):
             "time": self.current_step * self.step_size,
             "train_position": self.target_train.get_position(self.current_step - 1)
         }
+    
+    def _save_reward_to_csv(self):
+        """
+        エピソード終了時に呼び出され、報酬履歴を10区間に分割して
+        最大・平均・最小値を算出し、CSVに保存する。
+        """
+        if not hasattr(self, 'reward_history') or len(self.reward_history) == 0:
+            return
+
+        import pandas as pd
+        import numpy as np
+
+        # 履歴のリストをPandasのDataFrameに変換
+        df = pd.DataFrame(self.reward_history)
+        
+        # 全ステップ数を取得
+        total_steps = len(df)
+        if total_steps == 0:
+            return
+
+        # 10区間に分割するためのラベル（0〜9）を各行に付与
+        num_segments = 10
+        # 例: 100ステップなら、0~9行目は区間0、10~19行目は区間1...
+        df['segment'] = np.floor(df.index / (total_steps / num_segments)).astype(int)
+        df['segment'] = df['segment'].clip(upper=num_segments - 1) # 最大値を9に丸める
+
+        # 区間(segment)ごとにグループ化し、各カラムの 最大(max), 平均(mean), 最小(min) を計算
+        summary_df = df.groupby('segment').agg(['max', 'mean', 'min'])
+
+        # カラム名をフラットで見やすくする（例: 'distance_penalty_max'）
+        summary_df.columns = ['_'.join(col).strip() for col in summary_df.columns.values]
+
+        # CSVファイルとして保存（LLMが読み込みやすい場所に保存）
+        # ※ファイル名は上書きされる仕様にしていますが、エピソードごとに分けたい場合は
+        #   ファイル名に self.current_episode などの変数を足してください。
+        save_path = "llm_feedback_reward_summary.csv"
+        summary_df.to_csv(save_path)
+        
+        # コンソールへの通知（デバッグ用・不要なら削除可）
+        # print(f"=== 報酬の推移データを {save_path} に保存しました ===")
 
     def default_reward_fn(self, obs, action, info, done):
-        import math # (ファイルの先頭に書いてもOKです)
+        """
+        階層型強化学習：下位エージェント（ノッチ操作）向けの報酬関数。
+        入力変数として提供された obs, action, info, done のみを使用し、
+        出力は (合計報酬, 個々の報酬成分の辞書) のタプルとします。
+        """
+        # 観測値の展開
         velocity, speed_limit, distance, time_left = obs
-        reward = 0.0
         
-        # ==========================================
-        # 1. 安全な「目標速度」の計算（ATOブレーキパターン）
-        # ==========================================
-        # 駅の5m手前に、減速度 2.0 m/s^2 で滑らかに止まるための理想速度を計算
-        brake_distance = max(0.0, distance - 5.0)
-        # 物理公式: v = sqrt(2 * a * x)
-        safe_approach_speed = math.sqrt(2.0 * 2.0 * brake_distance) 
-        
-        # 「信号の制限速度」と「駅へのブレーキ速度」のうち、厳しい方を目標にする
-        target_speed = min(speed_limit, safe_approach_speed)
+        # 報酬成分の初期化
+        distance_penalty = 0.0
+        delay_penalty = 0.0
+        comfort_penalty = 0.0
+        energy_penalty = 0.0
+        stopping_bonus = 0.0
+        prohibition_penalty = 0.0
 
         # ==========================================
-        # 2. 速度の評価（目標速度への追従）
+        # 状態の初期化（新しい入力変数を追加せず self に保持）
         # ==========================================
-        if velocity > speed_limit:
-            reward -= 10.0  # 信号無視・速度超過は一発アウト級の減点
-        elif velocity > target_speed + 2.0:
-            reward -= 5.0   # 駅をオーバーランしそうなスピードも強く減点
+        if not hasattr(self, 'action_hold_time'):
+            self.action_hold_time = 0
+        if not hasattr(self, 'previous_action'):
+            self.previous_action = action
+
+        # ==========================================
+        # 1. 距離ペナルティ（駅からの発車・前進の促進）
+        # ==========================================
+        # 目標地点（駅や先行列車）から離れている分だけ微小なペナルティ
+        distance_penalty = -0.01 * distance
+
+        # ==========================================
+        # 2. 遅延ペナルティ
+        # ==========================================
+        # time_left（残り時間）が0未満（＝予定走行時間を超過）の場合、1秒オーバーするごとにペナルティ
+        if time_left < 0:
+            delay_penalty = -1.0 * abs(time_left)
+
+        # ==========================================
+        # 3. 乗り心地に関するペナルティ
+        # ==========================================
+        # action: 0(力行), 1(惰行), 2(減速) を想定
+        if action == self.previous_action:
+            self.action_hold_time += 1
         else:
-            # 目標速度に対して、近いほど加点、遠いほど減点
-            speed_diff = abs(target_speed - velocity)
-            reward += max(0.0, 1.0 - (speed_diff / 5.0)) 
+            # 操作が切り替わった際、保持時間が7秒（ステップ）未満だった場合はペナルティ
+            if self.action_hold_time < 7:
+                base_comfort_pen = -1.0 * (7 - self.action_hold_time)
+                
+                # 直接切り替え（加速⇔減速で惰行を挟まない動作）の判定
+                is_direct_switch = (self.previous_action == 0 and action == 2) or \
+                                (self.previous_action == 2 and action == 0)
+                
+                if is_direct_switch:
+                    base_comfort_pen *= 2.0  # ペナルティを2倍にする
+                    
+                comfort_penalty += base_comfort_pen
             
-            # ダラダラ這いずるのを防ぐ（最低限のスピードを要求）
-            if velocity < 1.0 and target_speed > 5.0:
-                reward -= 0.5
+            # 新しい操作に切り替わったので保持時間をリセット
+            self.action_hold_time = 0
+
+        self.previous_action = action
 
         # ==========================================
-        # 3. 乗り心地と省エネ（ガチャガチャ運転の禁止）
+        # 4. 消費エネルギーに関するペナルティ
         # ==========================================
-        if self.previous_action is not None:
-            if action != self.previous_action:
-                # ノッチを切り替えるたびに減点（= 無駄なエネルギーと揺れへの罰則）
-                reward -= 0.2
-        self.previous_action = action # 次のステップのために記憶を更新
+        if action == 0:  # 加速（力行）している間
+            energy_penalty = -0.1  # 他と比べて重要度が低いため微小
 
         # ==========================================
-        # 4. 駅の停車と終点到達のボーナス
+        # 5. 停止位置精度によるボーナス
         # ==========================================
-        if distance < 10.0 and velocity < 1.0:
-            if self.current_station_id not in self.visited_stations:
-                reward += 300.0  
-                self.visited_stations.add(self.current_station_id)
+        if velocity < 0.1:  # 速度がほぼ0（停止）と判定
+            if distance <= 1.0:
+                # 前後1m以内（ドア開扉範囲）は最大ボーナス
+                stopping_bonus = 100.0
+            elif distance <= 10.0:
+                # 手前10m以内の場合、ずれが小さいほど指数関数的に増加
+                stopping_bonus = 10.0 * math.exp(-0.5 * distance)
 
+        # ==========================================
+        # 6. 禁止行動へのペナルティ
+        # ==========================================
+        # 速度超過をした場合、加速(0)と惰行(1)を選択したら極大ペナルティ
+        if velocity > speed_limit and action in [0, 1]:
+            prohibition_penalty += -500.0
+
+        # 前方列車の位置を超えている（追突状態）場合の判定
+        # infoに前方列車との距離情報が入っていると仮定。なければ安全マージンとして9999.0
+        preceding_distance = info.get("preceding_distance", 9999.0)
+        if preceding_distance <= 0 and action in [0, 2]: # 加速(0)と減速(2)を選択したら極大ペナルティ
+            prohibition_penalty += -1000.0
+
+        # 終点到達時の処理（エピソード終了時）
+        terminal_reward = 0.0
         if done:
-            current_position = info["train_position"]
+            # ご提示いただいたテンプレートの終了時ボーナス/ペナルティを継承
+            current_position = info.get("train_position", None)
             pos_km = current_position.value if hasattr(current_position, "value") else 0.0
             if pos_km > 6.5:
-                reward += 1000.0
+                terminal_reward += 1000.0
             else:
-                reward -= 500.0
+                terminal_reward -= 500.0
 
-        return float(reward)
+        # ==========================================
+        # 報酬の集計と出力
+        # ==========================================
+        # 記録用辞書の作成
+        reward_components = {
+            'distance_penalty': distance_penalty,
+            'delay_penalty': delay_penalty,
+            'comfort_penalty': comfort_penalty,
+            'energy_penalty': energy_penalty,
+            'stopping_bonus': stopping_bonus + terminal_reward, # 終点ボーナスをここに統合
+            'prohibition_penalty': prohibition_penalty
+        }
+        
+        # 合計報酬の計算
+        total_reward = sum(reward_components.values())
+
+        # 指定された通り (合計報酬, 個々の報酬成分の辞書) を返す
+        return float(total_reward), reward_components

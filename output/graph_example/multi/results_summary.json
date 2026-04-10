@@ -1,5 +1,5 @@
 {
-  "saved_at": "2026-04-01T01:31:10.044281",
+  "saved_at": "2026-04-10T22:38:34.202596",
   "simulation_config": {
     "step_size": 0.1,
     "total_steps": 12000,
@@ -11,22 +11,22 @@
       "total_recorded_steps": 12000,
       "start_step": 0,
       "start_time_s": 0.0,
-      "end_step": 4173,
-      "end_time_s": 417.3,
-      "max_velocity_kmh": 92.06,
-      "average_velocity_kmh": 70.506,
+      "end_step": 3547,
+      "end_time_s": 354.7,
+      "max_velocity_kmh": 92.063,
+      "average_velocity_kmh": 77.589,
       "final_position_km": null,
       "final_edge_id": null
     },
     {
       "name": "普通列車2",
       "total_recorded_steps": 12000,
-      "start_step": 1200,
-      "start_time_s": 120.0,
-      "end_step": 6632,
-      "end_time_s": 663.2,
-      "max_velocity_kmh": 92.06,
-      "average_velocity_kmh": 52.142,
+      "start_step": 1800,
+      "start_time_s": 180.0,
+      "end_step": 5945,
+      "end_time_s": 594.5,
+      "max_velocity_kmh": 92.063,
+      "average_velocity_kmh": 65.525,
       "final_position_km": null,
       "final_edge_id": null
     }
