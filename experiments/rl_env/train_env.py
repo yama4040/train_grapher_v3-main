@@ -1,6 +1,7 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+import math
 
 from train_grapher_v3.core.line import Line
 from train_grapher_v3.core.block_system import MovingBlockSystem, FixedBlockSystem
@@ -15,13 +16,13 @@ class TrainEnv(gym.Env):
         self.json_path = json_path
         self.target_train_name = target_train_name # 学習対象の列車名
         
-        # 行動空間: 離散値 5パターン
-        # 0: 力行, 1: 惰行, 2: 減速(駅), 3: 定速, 4: 減速(最大)
-        self.action_space = spaces.Discrete(5)
+        # 行動空間: 離散値 3パターン
+        # 0: 力行, 1: 惰行, 2: 減速(駅)
+        self.action_space = spaces.Discrete(3)
 
         # 観測空間: 連続値 4次元
         # [現在の速度(m/s), 制限速度(m/s), 次の駅までの残距離(m), 目標到着時刻までの残り時間(s)]
-        high = np.array([100.0, 100.0, 50000.0, 3600.0], dtype=np.float32)
+        high = np.array([100.0, 100.0, 2000.0, 3600.0], dtype=np.float32)
         self.observation_space = spaces.Box(low=-high, high=high, dtype=np.float32)
 
         # LLM生成の報酬関数をセット（Noneの場合はデフォルトを使用）
@@ -105,6 +106,9 @@ class TrainEnv(gym.Env):
         if done:
             self._save_reward_to_csv()
             self.reward_history = [] # 次のエピソードに向けてリセット
+        
+        # infoに成分辞書を入れておくと、後でデバッグやコールバックで使いやすいです
+        info["reward_components"] = reward_components
 
         truncated = False # タイムアウトなどの打ち切りフラグ（今回は不使用）
         return obs, reward, done, truncated, info

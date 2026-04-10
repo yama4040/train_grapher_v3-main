@@ -104,19 +104,20 @@ def main():
         verbose=0,  # SB3標準の長ったらしいテーブル出力をオフにする
         learning_rate=3e-4,
         n_steps=2048,
-        batch_size=64
+        batch_size=64,
+        tensorboard_log="./tensorboard_logs/" # 追加
     )
 
     logger.info("🚀 学習を開始します...")
     
     # コールバックを渡して学習実行
     callback = TerminalOutputCallback()
-    total_timesteps = 500000 
+    total_timesteps = 1000000 
     
     # ★ progress_bar=True を追加
     model.learn(total_timesteps=total_timesteps, callback=callback, progress_bar=True)
     
-    model.learn(total_timesteps=total_timesteps, callback=callback)
+    #model.learn(total_timesteps=total_timesteps, callback=callback)
 
     # モデルの保存
     save_dir = "./output/models/"
