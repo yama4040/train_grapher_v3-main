@@ -37,7 +37,19 @@ def main():
     logger.info("AIによるテスト走行を開始します...")
     
     obs, info = env.reset()
+    
+    # ★ 修正：シミュレータの出力を信用せず、JSONから直接駅の位置を取得する
+    import json
+    with open(json_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+        try:
+            # jsonの stations[0].value を取得（2.0 が入ります）
+            target_pos_km = float(config["line_shape"]["edges"][0]["stations"][0]["value"])
+        except (KeyError, IndexError):
+            target_pos_km = 2.0 # 見つからなければフェイルセーフ
+            
     done = False
+
     
     times = []
     positions = []
@@ -77,6 +89,21 @@ def main():
     fig1, ax1 = plt.subplots(figsize=(12, 5))
     ax1.plot(positions, speed_limits, color='red', linestyle='--', alpha=0.7, label='Speed Limit (km/h)')
     ax1.plot(positions, velocities, color='blue', linewidth=2, label='Train Velocity (km/h)')
+    
+    # ==========================================
+    # ★ ここに追加：駅の停止位置（目標位置）に太い黒線を引く
+    # ==========================================
+    # シミュレーション終了時（ループを抜けた後）のAIの最終データから逆算します。
+    # obs は [速度, 制限速度, 残り距離(m), 残り時間] なので、obs[2] が残り距離です。
+    final_distance_km = float(obs[2]) / 1000.0 
+        
+    # 最終的な列車の位置(km) ＋ 残り距離(km) ＝ 目標の駅の位置(km)
+    target_pos_km = positions[-1] + final_distance_km
+    
+    ax1.axvline(x=target_pos_km, color='black', linewidth=3, linestyle='-', label='Station Stop Position')
+    ax1.set_xlim(left=0.0, right=max(positions[-1], target_pos_km) + 0.5)
+    # ==========================================
+    
     ax1.set_xlabel('Distance (km)')
     ax1.set_ylabel('Speed (km/h)')
     ax1.set_title('AI Driving Result: Run Curve (Distance-based)')
@@ -94,8 +121,8 @@ def main():
     ax2_speed.legend()
 
     ax2_action.step(times, actions_taken, color='green', where='post', label='Action (Notch)')
-    ax2_action.set_yticks([0, 1, 2, 3, 4])
-    ax2_action.set_yticklabels(['Power (0)', 'Coast (1)', 'Station Brk (2)', 'Hold Spd (3)', 'Max Brk (4)'])
+    ax2_action.set_yticks([0, 1, 2])
+    ax2_action.set_yticklabels(['Power (0)', 'Coast (1)', 'Brake (2)'])
     ax2_action.set_xlabel('Time (s)')
     ax2_action.set_ylabel('Action')
     ax2_action.grid(True, linestyle=':', alpha=0.6)

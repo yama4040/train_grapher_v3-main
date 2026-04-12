@@ -167,7 +167,7 @@ class TrainEnv(gym.Env):
             return
 
         # 10区間に分割するためのラベル（0〜9）を各行に付与
-        num_segments = 10
+        num_segments = 50
         # 例: 100ステップなら、0~9行目は区間0、10~19行目は区間1...
         df['segment'] = np.floor(df.index / (total_steps / num_segments)).astype(int)
         df['segment'] = df['segment'].clip(upper=num_segments - 1) # 最大値を9に丸める
@@ -189,123 +189,117 @@ class TrainEnv(gym.Env):
 
     def default_reward_fn(self, obs, action, info, done):
         """
-        階層型強化学習：下位エージェント（ノッチ操作）向けの報酬関数。
-        入力変数として提供された obs, action, info, done のみを使用し、
-        出力は (合計報酬, 個々の報酬成分の辞書) のタプルとします。
+        階層型強化学習：単位バグ修正済 ＆ 物理ベース目標速度追従型報酬関数
         """
-        # 観測値の展開
-        velocity, speed_limit, distance, time_left = obs
+        import math
         
-        # 報酬成分の初期化
-        distance_penalty = 0.0
-        delay_penalty = 0.0
-        comfort_penalty = 0.0
-        energy_penalty = 0.0
-        stopping_bonus = 0.0
-        prohibition_penalty = 0.0
+        # ==========================================
+        # ★大修正1: 単位はすべて SI単位系(m, m/s) でした！
+        # 1000倍する処理を削除し、そのままメートル・秒として扱います。
+        # ==========================================
+        velocity_ms, speed_limit_ms, distance_m, time_left = obs
+        distance_m = float(distance_m)
+        
+        current_position = info.get("train_position", None)
+        pos_km = current_position.value if hasattr(current_position, "value") else 0.0
+        act = int(action)
 
-        # ==========================================
-        # 状態の初期化（新しい入力変数を追加せず self に保持）
-        # ==========================================
-        if not hasattr(self, 'action_hold_time'):
+        current_step = getattr(self, 'current_step', 0)
+        if current_step <= 1 or not hasattr(self, 'prev_distance_m'):
             self.action_hold_time = 0
-        if not hasattr(self, 'previous_action'):
-            self.previous_action = action
+            self.previous_action = act
+            self.visited_stations = set()
+            self.prev_distance_m = distance_m
+            self.start_pos_km = pos_km
+
+        tve_reward = 0.0
+        sl_penalty = 0.0
+
+        # --- 待機状態の判定（前回追加した180秒待機の処理） ---
+        is_waiting = False
+        if pos_km < 0.1 and distance_m <= 10.0:
+            is_waiting = True
+            distance_m = 2000.0  
+
+        # --- 駅通過（オーバーラン）検知 ---
+        distance_jump_m = distance_m - self.prev_distance_m
+        if not is_waiting and distance_jump_m > 100.0:
+            if velocity_ms > 0.5: # 0.5m/s (約1.8km/h) 以上で通過したら即死
+                sl_penalty -= 5000.0
+            self.prev_distance_m = distance_m
 
         # ==========================================
-        # 1. 距離ペナルティ（駅からの発車・前進の促進）
+        # ★大修正2: 物理法則に基づいた「ルート関数」のブレーキカーブ
+        # 減速度 1.5 m/s^2 で快適に止まるための理想速度 (v = sqrt(2 * a * distance))
         # ==========================================
-        # 目標地点（駅や先行列車）から離れている分だけ微小なペナルティ
-        distance_penalty = -0.01 * distance
+        safe_velocity_ms = math.sqrt(3.0 * max(distance_m, 0.0))
+        target_velocity_ms = min(speed_limit_ms, safe_velocity_ms)
 
-        # ==========================================
-        # 2. 遅延ペナルティ
-        # ==========================================
-        # time_left（残り時間）が0未満（＝予定走行時間を超過）の場合、1秒オーバーするごとにペナルティ
-        if time_left < 0:
-            delay_penalty = -1.0 * abs(time_left)
+        # AIが目標速度に従っているか判定
+        if velocity_ms <= target_velocity_ms:
+            progress_m = self.prev_distance_m - distance_m
+            if progress_m > 0 and not is_waiting: 
+                tve_reward += progress_m * 2.0
+            # 速度ボーナスも m/s 基準にスケール調整
+            tve_reward += velocity_ms * 0.1 
+        else:
+            # 目標速度を超えたら強烈なペナルティでブレーキを強制
+            over_speed_ms = velocity_ms - target_velocity_ms
+            tve_reward -= over_speed_ms * 10.0 
 
-        # ==========================================
-        # 3. 乗り心地に関するペナルティ
-        # ==========================================
-        # action: 0(力行), 1(惰行), 2(減速) を想定
-        if action == self.previous_action:
+        self.prev_distance_m = distance_m
+
+        # 初動アシスト
+        if not is_waiting and velocity_ms < 0.1 and act == 0:
+            tve_reward += 1.0
+
+        # --- 乗り心地 ---
+        ic_penalty = 0.0
+        if act == self.previous_action:
             self.action_hold_time += 1
         else:
-            # 操作が切り替わった際、保持時間が7秒（ステップ）未満だった場合はペナルティ
-            if self.action_hold_time < 7:
-                base_comfort_pen = -1.0 * (7 - self.action_hold_time)
-                
-                # 直接切り替え（加速⇔減速で惰行を挟まない動作）の判定
-                is_direct_switch = (self.previous_action == 0 and action == 2) or \
-                                (self.previous_action == 2 and action == 0)
-                
-                if is_direct_switch:
-                    base_comfort_pen *= 2.0  # ペナルティを2倍にする
-                    
-                comfort_penalty += base_comfort_pen
-            
-            # 新しい操作に切り替わったので保持時間をリセット
+            if self.action_hold_time < 5:
+                ic_penalty = -0.5 * (5 - self.action_hold_time)
             self.action_hold_time = 0
+        self.previous_action = act
 
-        self.previous_action = action
+        # --- 遅延 ---
+        tce_penalty = 0.0 if is_waiting else -0.1
 
-        # ==========================================
-        # 4. 消費エネルギーに関するペナルティ
-        # ==========================================
-        if action == 0:  # 加速（力行）している間
-            energy_penalty = -0.1  # 他と比べて重要度が低いため微小
-
-        # ==========================================
-        # 5. 停止位置精度によるボーナス
-        # ==========================================
-        if velocity < 0.1:  # 速度がほぼ0（停止）と判定
-            if distance <= 1.0:
-                # 前後1m以内（ドア開扉範囲）は最大ボーナス
-                stopping_bonus = 100.0
-            elif distance <= 10.0:
-                # 手前10m以内の場合、ずれが小さいほど指数関数的に増加
-                stopping_bonus = 10.0 * math.exp(-0.5 * distance)
-
-        # ==========================================
-        # 6. 禁止行動へのペナルティ
-        # ==========================================
-        # 速度超過をした場合、加速(0)と惰行(1)を選択したら極大ペナルティ
-        if velocity > speed_limit and action in [0, 1]:
-            prohibition_penalty += -500.0
-
-        # 前方列車の位置を超えている（追突状態）場合の判定
-        # infoに前方列車との距離情報が入っていると仮定。なければ安全マージンとして9999.0
+        # --- 速度超過・追突 ---
+        if velocity_ms > speed_limit_ms:
+            sl_penalty -= 50.0
+            
         preceding_distance = info.get("preceding_distance", 9999.0)
-        if preceding_distance <= 0 and action in [0, 2]: # 加速(0)と減速(2)を選択したら極大ペナルティ
-            prohibition_penalty += -1000.0
+        if preceding_distance <= 0:
+            sl_penalty -= 100.0
 
-        # 終点到達時の処理（エピソード終了時）
+        # --- 停止ボーナス ---
+        de_bonus = 0.0
+        if abs(pos_km - self.start_pos_km) > 0.05:
+            # m/s換算なので 0.2m/s (約0.7km/h) 以下を完全停止とみなす
+            if velocity_ms < 0.2 and distance_m <= 10.0:
+                current_station_id = getattr(self, 'current_station_id', 'unknown_station')
+                if current_station_id not in self.visited_stations:
+                    if distance_m <= 1.0:
+                        de_bonus = 1000.0
+                    else:
+                        de_bonus = 100.0 * math.exp(-0.5 * distance_m)
+                    self.visited_stations.add(current_station_id)
+
         terminal_reward = 0.0
-        if done:
-            # ご提示いただいたテンプレートの終了時ボーナス/ペナルティを継承
-            current_position = info.get("train_position", None)
-            pos_km = current_position.value if hasattr(current_position, "value") else 0.0
-            if pos_km > 6.5:
-                terminal_reward += 1000.0
-            else:
-                terminal_reward -= 500.0
+        if done and pos_km > 6.5:
+            terminal_reward += 1000.0
+            
+        ef_penalty = 0.0 
 
-        # ==========================================
-        # 報酬の集計と出力
-        # ==========================================
-        # 記録用辞書の作成
         reward_components = {
-            'distance_penalty': distance_penalty,
-            'delay_penalty': delay_penalty,
-            'comfort_penalty': comfort_penalty,
-            'energy_penalty': energy_penalty,
-            'stopping_bonus': stopping_bonus + terminal_reward, # 終点ボーナスをここに統合
-            'prohibition_penalty': prohibition_penalty
+            'tve_reward': tve_reward,
+            'tce_penalty': tce_penalty,
+            'ic_penalty': ic_penalty,
+            'ef_penalty': ef_penalty,
+            'sl_penalty': sl_penalty,
+            'de_bonus': de_bonus + terminal_reward
         }
         
-        # 合計報酬の計算
-        total_reward = sum(reward_components.values())
-
-        # 指定された通り (合計報酬, 個々の報酬成分の辞書) を返す
-        return float(total_reward), reward_components
+        return float(sum(reward_components.values())), reward_components
