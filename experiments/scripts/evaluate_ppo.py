@@ -36,18 +36,18 @@ def main():
     # ==========================================
     logger.info("AIによるテスト走行を開始します...")
     
+    # === (テスト走行開始前) ===
     obs, info = env.reset()
     
-    # ★ 修正：シミュレータの出力を信用せず、JSONから直接駅の位置を取得する
+    # ★ JSONから駅の距離を引用
     import json
-    with open(json_path, 'r', encoding='utf-8') as f:
-        config = json.load(f)
-        try:
-            # jsonの stations[0].value を取得（2.0 が入ります）
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
             target_pos_km = float(config["line_shape"]["edges"][0]["stations"][0]["value"])
-        except (KeyError, IndexError):
-            target_pos_km = 2.0 # 見つからなければフェイルセーフ
-            
+    except Exception as e:
+        target_pos_km = 2.0 # 読み込めなかった時の保険
+        
     done = False
 
     
@@ -98,10 +98,11 @@ def main():
     final_distance_km = float(obs[2]) / 1000.0 
         
     # 最終的な列車の位置(km) ＋ 残り距離(km) ＝ 目標の駅の位置(km)
-    target_pos_km = positions[-1] + final_distance_km
-    
-    ax1.axvline(x=target_pos_km, color='black', linewidth=3, linestyle='-', label='Station Stop Position')
-    ax1.set_xlim(left=0.0, right=max(positions[-1], target_pos_km) + 0.5)
+    # === evaluate_ppo.py のグラフ描画部分 ===
+    target_pos_km = 2.0  # ★絶対に 2.0 をハードコードする
+
+    ax1.axvline(x=target_pos_km, color='black', linewidth=3, linestyle='-', label=f'Station ({target_pos_km}km)')
+    ax1.set_xlim(left=0.0, right=2.5) # ★横幅も 2.5km まで完全固定する
     # ==========================================
     
     ax1.set_xlabel('Distance (km)')

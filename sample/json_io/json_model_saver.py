@@ -197,8 +197,8 @@ def save_multi_train_simulation_model():
         factor_of_inertia=24.54,  # 慣性係数（重量に対する慣性の大きさを表す。0～1の値で、値が小さいほど加減速が速い）
         decelerating_acceleration=-2.5,  # 通常の減速時の加速度（m/s²、負の値で表す）
         decelerating_acceleration_station=-3.5,  # 駅停車時の減速加速度（m/s²、負の値で表す）
-        fast_margine=8.0,  # 高速マージン（m/s²、加速時の余裕を表す。値が大きいほど加速が速くなる）
-        slow_margine=12.0,  # 低速マージン（m/s²、減速時の余裕を表す。値が大きいほど減速が速くなる）
+        fast_margine=8.0,  # 高速マージン：制限速度-fast_margine まで加速可能
+        slow_margine=12.0,  # 低速マージン：制限速度-slow_margine になると再加速
     )
 
     # 駅停車時間の設定（各駅30秒停車）,駅0→駅1：95sec
