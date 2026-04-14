@@ -238,24 +238,36 @@ class TrainEnv(gym.Env):
     #obs：シミュレータからの情報，action：エージェントの行動，info：シミュレータからの追加情報，done：エピソード終了フラグ
     def default_reward_fn(self, obs, action, info, done):
         """
-        階層型強化学習：1秒分解能・Ape-X DQN哲学（D^{1/3}罰＆Error^{-0.5}停止）統合モデル
+        階層型強化学習：フェーズ完全分離（駅減速 vs 追従）＆ 到達時間最適化モデル
         """
         import math
         import json
         
-        velocity_kmh, speed_limit_kmh, _, time_left = obs
+        # 1. 観測値の単位変換 (m/s -> km/h)
+        v_ms = float(obs[0])
+        limit_ms = float(obs[1])
+        velocity_kmh = v_ms * 3.6
+        speed_limit_kmh = limit_ms * 3.6
+        distance_m = float(obs[2])
+        
+        if limit_ms > 40.0:  
+            velocity_kmh = v_ms
+            speed_limit_kmh = limit_ms
+
         current_position = info.get("train_position", None)
         pos_km = current_position.value if hasattr(current_position, "value") else 0.0
         act = int(action)
 
         current_step = getattr(self, 'current_step', 0)
+        step_size = getattr(self, 'step_size', 0.1)
+        current_time_sec = current_step * step_size 
 
         # ==========================================
         # 環境パラメータの取得
         # ==========================================
         if not hasattr(self, 'target_station_km'):
             self.target_station_km = 2.0
-            self.wait_steps = 1800  
+            self.wait_sec = 180.0  
             self.brake_accel = 3.5  
             self.fast_margine = 5.0   
             self.slow_margine = 18.0  
@@ -265,7 +277,8 @@ class TrainEnv(gym.Env):
                     self.target_station_km = float(config["line_shape"]["edges"][0]["stations"][0]["value"])
                     for t in config.get("trains", []):
                         if t.get("name") == getattr(self, 'target_train_name', ''):
-                            self.wait_steps = int(t.get("start_condition", {}).get("step", 1800))
+                            wait_steps = int(t.get("start_condition", {}).get("step", 1800))
+                            self.wait_sec = wait_steps * step_size
                             params = t.get("parameters", {})
                             self.brake_accel = abs(float(params.get("decelerating_acceleration_station", -3.5)))
                             self.fast_margine = float(params.get("fast_margine", 5.0))
@@ -277,10 +290,9 @@ class TrainEnv(gym.Env):
             self.action_hold_time = 0
             self.previous_action = act
             self.visited_stations = set()
-            self.prev_distance_m = abs(self.target_station_km - pos_km) * 1000.0
+            self.prev_distance_m = distance_m
             self.start_pos_km = pos_km
 
-        distance_m = abs(self.target_station_km - pos_km) * 1000.0 
         preceding_distance = info.get("preceding_distance", 9999.0)
 
         tve_reward = 0.0
@@ -289,129 +301,132 @@ class TrainEnv(gym.Env):
         ef_penalty = 0.0
         tce_penalty = 0.0
 
-        is_waiting_period = (current_step * 10 < self.wait_steps) # 1秒=10ステップ換算
+        is_waiting_period = (current_time_sec < self.wait_sec)
 
-        # 目標安全速度の計算（ブレーキカーブ）
+        # ==========================================
+        # 物理限界とフェーズの完全分離
+        # ==========================================
         safe_v_station = math.sqrt(7.2 * self.brake_accel * max(distance_m, 0.0))
         safe_v_preced = math.sqrt(7.2 * 2.5 * max(preceding_distance - 50.0, 0.0))
         target_v_kmh = min(speed_limit_kmh, safe_v_station, safe_v_preced)
+
+        margin = target_v_kmh - velocity_kmh
+
+        # ★ 今回のブレイクスルー：今は「駅への減速中」なのかを明示的に判定
+        is_station_phase = (target_v_kmh == safe_v_station) and (target_v_kmh < speed_limit_kmh - 5.0)
 
         # ==========================================
         # 1. 致命的な反則の即時罰金
         # ==========================================
         if velocity_kmh < -0.5: sl_penalty -= 500.0
         if preceding_distance <= 0: sl_penalty -= 1000.0
-        if pos_km > self.target_station_km + 0.02 and velocity_kmh > 1.0:
-            sl_penalty -= 50.0
 
         # ==========================================
-        # 2. 待機時間とサボり（失速・途中停車の完全防止）
+        # 2. 待機とフェーズ別速度制御
         # ==========================================
         if is_waiting_period:
-            if velocity_kmh > 0.1:
-                sl_penalty -= 5.0  
+            if velocity_kmh > 0.5: sl_penalty -= 100.0  
+            if act == 2: tve_reward += 2.0  
+            else: ef_penalty -= 5.0
         else:
-            # ★前が開いているのに失速しそうなら毎秒大赤字。加速(0)でのみ救済。
-            if velocity_kmh < 2.0 and target_v_kmh > 20.0:
-                tce_penalty = -5.0  
-                if act == 0: tve_reward += 5.0 
-            else:
-                tce_penalty = -0.1
-
+            # 前進報酬（距離を稼ぐモチベーション）
             progress_m = self.prev_distance_m - distance_m
+            if progress_m > 0:
+                tve_reward += progress_m * 10.0 
 
-            # ==========================================
-            # 3. 速度評価とフェーズ別誘導（再加速の強制）
-            # ==========================================
-            if velocity_kmh > target_v_kmh:
-                over_speed = velocity_kmh - target_v_kmh
-                sl_penalty -= over_speed * 5.0  
-                tve_reward = 0.0  
-                if act != 2: sl_penalty -= 30.0 
+            # Anti-Strike機構（発車の強制）
+            if velocity_kmh < 1.0 and target_v_kmh > 5.0:
+                if act == 0: tve_reward += 30.0
+                else: tce_penalty -= 20.0
+
+            # --- フェーズ制御 ---
+            if margin < -2.0:
+                # 【緊急ブレーキゾーン】速度超過
+                sl_penalty -= abs(margin) * 5.0
+                if act != 2: sl_penalty -= 50.0 
+
+            elif margin <= self.fast_margine: 
+                # 【上限到達ゾーン】目標速度に追いついた！
+                if is_station_phase:
+                    # 駅が近い -> ブレーキでカーブをなぞるのが大正解
+                    if act == 2: tve_reward += 15.0
+                    elif act == 1: tve_reward += 5.0
+                    elif act == 0: ef_penalty -= 30.0
+                else:
+                    # 巡航中・先行列車追従中 -> 惰行(1)で距離を保つのが大正解（ブレーキは踏まない！）
+                    if act == 1: tve_reward += 15.0
+                    elif act == 0: ef_penalty -= 30.0
+                    elif act == 2: ef_penalty -= 10.0 # 無駄なブレーキは罰金
+
+            elif margin <= self.slow_margine: 
+                # 【エコバンド・予備惰行ゾーン】
+                if is_station_phase:
+                    # 駅が近い -> 早めにアクセルを離して予備惰行
+                    if act == 1: tve_reward += 15.0
+                    elif act == 0: ef_penalty -= 30.0
+                else:
+                    # 巡航中・先行列車追従中 -> 加速か惰行をキープ
+                    if act == 0 or act == 1: 
+                        tve_reward += 10.0
+                    if act == self.previous_action: 
+                        tve_reward += 5.0 # フラフラせずキープしたらボーナス
+
             else:
-                if progress_m > 0:
-                    tve_reward += progress_m * 5.0
-
-                under_speed = target_v_kmh - velocity_kmh
-
-                if target_v_kmh >= speed_limit_kmh - 2.0: 
-                    # 【巡航フェーズ：ヒステリシス】
-                    coast_upper = speed_limit_kmh - self.fast_margine
-                    coast_lower = speed_limit_kmh - self.slow_margine
-
-                    if velocity_kmh >= coast_upper:
-                        if act == 1: tve_reward += 5.0  
-                        elif act == 0: ef_penalty -= 10.0  
-                    elif velocity_kmh <= coast_lower:
-                        if act == 0: tve_reward += 5.0  
-                        # ★遅いのに惰行(1)やブレーキ(2)は絶対に許さない
-                        elif act == 1 or act == 2: ef_penalty -= 10.0  
-                else: 
-                    # 【減速接近フェーズ】
-                    if act == 0:
-                        ef_penalty -= 10.0 
-                    elif under_speed <= 10.0:
-                        if act == 2: tve_reward += 3.0 
-                    elif under_speed > 10.0:
-                        if act == 1: tve_reward += 3.0 
+                # 【全力加速ゾーン】
+                if act == 0: tve_reward += 15.0
+                elif act == 2: ef_penalty -= 20.0
 
         self.prev_distance_m = distance_m
 
         # ==========================================
-        # 4. ガチャガチャ操作の封印 ＆ 【新規】保持ボーナス
+        # 3. 操作保持（チャタリング防止）
         # ==========================================
         if not is_waiting_period:
             if act == self.previous_action:
                 self.action_hold_time += 1
-                ic_penalty += 0.5  # ★何もしない（キープする）だけで毎秒ご褒美！
+                ic_penalty += 1.0
             else:
-                # 5秒未満で切り替えたら超特大ペナルティ
-                if self.action_hold_time < 5:
-                    ic_penalty -= 50.0  
+                # 駅の減速カーブ中のみ3秒、それ以外は7秒のホールド
+                min_hold = 3 if is_station_phase else 7
+                if velocity_kmh < 1.0 or margin < -2.0:
+                    min_hold = 0 # 発車時・緊急時は無罪
+
+                if self.action_hold_time < min_hold:
+                    ic_penalty -= 30.0  
                 self.action_hold_time = 0
         self.previous_action = act
 
         # ==========================================
-        # 5. 未到達＆ミリ単位の停止ボーナス（Apex-DQN流）
+        # 4. 終端報酬
         # ==========================================
         terminal_reward = 0.0
-        de_bonus = 0.0
-        
-        current_time_sec = float(current_step)
         info["arrival_time_sec"] = current_time_sec
 
         if done:
             error_m = abs(pos_km - self.target_station_km) * 1000.0
-            
             if error_m <= 50.0 and velocity_kmh < 1.0:
-                # ★ 停止誤差の逆平方根（ミリ単位の職人技を生む魔法の式）
-                # 10mズレなら約630点、1mズレなら2000点、10cmズレなら6300点
-                precision_bonus = 2000.0 / math.sqrt(max(error_m, 0.1))
+                # 停止成功
+                precision_bonus = 3000.0 / math.sqrt(max(error_m, 0.1))
                 terminal_reward += precision_bonus
                 
-                # 定時運行ボーナス
-                target_running_time_sec = 120.0 
-                actual_running_time_sec = current_time_sec - float(self.wait_steps / 10)
-                info["actual_running_time"] = actual_running_time_sec
-                time_diff = abs(target_running_time_sec - actual_running_time_sec)
+                target_run_time = 120.0 
+                actual_run_time = current_time_sec - self.wait_sec
+                info["actual_running_time"] = actual_run_time
+                time_diff = abs(target_run_time - actual_run_time)
                 
-                if time_diff <= 5.0: terminal_reward += 1000.0
-                else: terminal_reward -= time_diff * 5.0
+                if time_diff <= 5.0: terminal_reward += 2000.0
+                else: terminal_reward -= time_diff * 10.0
                 
             elif pos_km > self.target_station_km + 0.05:
                 # オーバーラン
-                terminal_reward -= 2000.0
+                terminal_reward -= 5000.0
             else:
-                # ★ 残り距離の3乗根（駅の直前でも焦りを持続させる魔法の式）
-                # 10m手前でも -215点、1m手前でも -100点と、最後まで妥協を許さない
-                terminal_reward -= (distance_m ** (1/3)) * 100.0
+                # 途中終了（タイムアウトなど）：容赦ない罰金で「もっと早く走れ」と促す
+                terminal_reward -= (distance_m ** (1/3)) * 200.0
 
         reward_components = {
-            'tve_reward': tve_reward,
-            'tce_penalty': tce_penalty,
-            'ic_penalty': ic_penalty,
-            'ef_penalty': ef_penalty,
-            'sl_penalty': sl_penalty,
-            'de_bonus': de_bonus + terminal_reward
+            'tve_reward': tve_reward, 'tce_penalty': tce_penalty,
+            'ic_penalty': ic_penalty, 'ef_penalty': ef_penalty,
+            'sl_penalty': sl_penalty, 'de_bonus': terminal_reward
         }
         return float(sum(reward_components.values())), reward_components
