@@ -12,7 +12,10 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import (
+    BaseCallback,
+    CheckpointCallback,  # ← CheckpointCallbackを追加
+)
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.monitor import Monitor
 
@@ -124,13 +127,34 @@ def main():
 
     logger.info("🚀 学習を開始します...")
 
-    # 学習実行
-    model.learn(total_timesteps=1000000)
+    total_timesteps = 1000000
 
     # ==========================================
-    # 2. 学習終了後：学習曲線の出力・保存
+    # ★追加：定期セーブ（チェックポイント）の設定
+    # ==========================================
+    # 10万ステップ（全体の10%）ごとにモデルをバックアップ保存する
+    checkpoint_callback = CheckpointCallback(
+        save_freq=100000, save_path=os.path.join(save_dir, "checkpoints"), name_prefix="ppo_model"
+    )
+
+    # もし自作のTerminalOutputCallbackも使っている場合は、リストにして両方渡します
+    # callbacks = [TerminalOutputCallback(total_timesteps), checkpoint_callback]
+
+    # 学習実行（コールバックを渡す）
+    model.learn(total_timesteps=total_timesteps, callback=checkpoint_callback, progress_bar=True)
+
+    # ==========================================
+    # ★追加：最終モデルの保存
+    # ==========================================
+    final_model_path = os.path.join(save_dir, "ppo_final_model")
+    model.save(final_model_path)
+    logger.info(f"🎉 最終モデルを保存しました: {final_model_path}.zip")
+
+    # ==========================================
+    # 学習終了後：学習曲線の出力・保存（既存のコード）
     # ==========================================
     logger.info("学習曲線を生成・保存しています...")
+    # ... (以降は既存のCSV・グラフ出力コード) ...
     monitor_file = os.path.join(log_dir, "monitor.csv")
 
     if os.path.exists(monitor_file):
