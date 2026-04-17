@@ -331,39 +331,40 @@ class TrainEnv(gym.Env):
     def default_reward_fn(self, obs, action, info, done):
         """
         階層型強化学習：鉄道の定刻運行・省エネ・安全性を考慮した総合的な報酬関数
-        改善版：出発促進ペナルティの導入、圧倒的な進行報酬、理想ブレーキ曲線への追従
+        修正版：スケール不一致の解消、Bang-Bang制御の撲滅、惰行（エコドライブ）の明確なボーナス化
         """
-
+        import math
+        
         # ==========================================
         # 1. 状態の取得と変数の初期化
         # ==========================================
         velocity_kmh, speed_limit_kmh, _, time_left = obs
         velocity_ms = velocity_kmh / 3.6
-        speed_limit_ms = speed_limit_kmh / 3.6
-
+        
+        # 制限速度のハードキャップ (100km/h想定)
+        speed_limit_ms = min(speed_limit_kmh / 3.6, 27.78)
+        
         current_position = info.get("train_position", None)
         pos_km = current_position.value if hasattr(current_position, "value") else 0.0
-
-        # actionの定義: 0=加速(力行), 1=惰行, 2=ブレーキ と想定
+        
+        # actionの定義: 0=加速(力行), 1=惰行, 2=ブレーキ
         act = int(action)
-
         current_step = getattr(self, "current_step", 0)
         train = getattr(self, "train", None)
-
-        # ロガーに対応する報酬成分
-        tve_reward = 0.0  # 進行報酬・待機ボーナス
-        tce_penalty = 0.0  # 遅延・出発遅れペナルティ
-        ic_penalty = 0.0  # 乗り心地（スイッチング）ペナルティ
-        ef_penalty = 0.0  # 消費エネルギー（加速）ペナルティ
-        sl_penalty = 0.0  # 制限速度・オーバーラン・ブレーキ曲線超過ペナルティ
-        de_bonus = 0.0  # 停止位置精度ボーナス
+        
+        tve_reward = 0.0   
+        tce_penalty = 0.0  
+        ic_penalty = 0.0   
+        ef_penalty = 0.0   
+        sl_penalty = 0.0   
+        de_bonus = 0.0     
 
         # 初期化処理
         if current_step <= 1 or not hasattr(self, "prev_distance_m"):
             self.action_hold_time = 0
             self.previous_action = act
             self.visited_stations = set()
-
+            
             self.target_station_km = 2.0
             self.wait_steps = 1800
             if train is not None:
@@ -371,7 +372,7 @@ class TrainEnv(gym.Env):
                 if next_station_info and next_station_info[0]:
                     self.target_station_km = next_station_info[0].position.value
                     self.current_station_id = next_station_info[0].id
-
+            
             self.prev_distance_m = abs(self.target_station_km - pos_km) * 1000.0
             self.start_pos_km = pos_km
 
@@ -380,94 +381,100 @@ class TrainEnv(gym.Env):
         is_waiting_period = current_step < self.wait_steps
 
         # ==========================================
-        # 2. 待機期間中 (ステップ1800まで)
+        # 2. 待機期間中 (フライング防止)
         # ==========================================
         if is_waiting_period:
-            if velocity_ms < 0.1 and act == 2:  # 完全に停止しブレーキをかけている状態
-                tve_reward += 0.5
+            if velocity_ms < 0.1 and act == 2: 
+                tve_reward += 1.0  
             elif velocity_ms > 0.1:
-                sl_penalty -= 5.0  # フライングペナルティ（萎縮しないようスケールを小さく）
+                sl_penalty -= (10.0 + velocity_ms * 10.0)
 
         # ==========================================
-        # 3. 走行期間中 (出発・進行・速度追従)
+        # 3. 走行期間中 (速度管理と進行)
         # ==========================================
         if not is_waiting_period:
-            # --- 出発促進ペナルティ ---
-            # 待機時間が終わったのに駅に留まっている場合、毎ステップ罰を与えて強制的に動かす
-            if velocity_ms < 0.1 and distance_m > 100.0:
-                tce_penalty -= 2.0
+            # 機外停車（立ち往生）の厳罰化。0.8km地点などで止まるのを防ぐ
+            if velocity_ms < 0.1 and distance_m > 50.0:
+                tce_penalty -= 10.0  
 
-            # --- 圧倒的な進行報酬 ---
-            progress_m = self.prev_distance_m - distance_m
-            if pos_km <= self.target_station_km and progress_m > 0:
-                # 1m進むごとの報酬を極端に大きくし、「動く=正義」を叩き込む
-                tve_reward += progress_m * 50.0
-
-            # --- 理想のブレーキ曲線（Reference Velocity）の計算 ---
-            # 減速度 2.5 km/h/s (約0.7 m/s^2) で安全に駅に止まれる上限速度
-            v_brake = math.sqrt(2.0 * 0.7 * max(distance_m - 2.0, 0.0))
+            # 理想の目標上限速度の計算
+            v_brake = math.sqrt(2.0 * 0.7 * max(distance_m - 5.0, 0.0))
             min_safe_distance = 100.0
-            v_preceding = math.sqrt(2.0 * max(preceding_distance - min_safe_distance, 0.0))
-
-            # 目標上限速度は、「制限速度」「ブレーキ曲線」「先行列車距離」の最も厳しいもの
+            # 先行列車に対する減速度も0.7m/s^2を想定して計算を精緻化
+            v_preceding = math.sqrt(2.0 * 0.7 * max(preceding_distance - min_safe_distance, 0.0))
             target_v_max = min(speed_limit_ms, v_brake, v_preceding)
 
-            # 速度オーバーへのペナルティ
-            if pos_km > self.target_station_km:
-                sl_penalty -= 20.0  # オーバーランペナルティ（学習崩壊を防ぐため-100から-20へ緩和）
-            elif velocity_ms > target_v_max:
+            # 速度超過とオーバーラン
+            is_overspeed = velocity_ms > target_v_max
+            if is_overspeed:
                 over_speed = velocity_ms - target_v_max
-                sl_penalty -= over_speed * 2.0  # 曲線に沿うように誘導
+                # 軽微な超過は線形ペナルティにし、フルブレーキの連打を防ぐ
+                if over_speed < 2.0:
+                    sl_penalty -= over_speed * 5.0
+                else:
+                    sl_penalty -= (over_speed ** 2) * 2.0 
+                
+            if pos_km > self.target_station_km:
+                over_run_m = (pos_km - self.target_station_km) * 1000.0
+                sl_penalty -= (10.0 + over_run_m * 2.0) 
 
-            # --- 惰行の誘導（エネルギーペナルティ） ---
-            if act == 0:  # 0を加速(力行)とする
-                ef_penalty -= 0.2  # 基本の加速コスト
-                # 目標上限速度に十分近い（-2.0m/s以内）のにさらに加速しようとしたら強いペナルティ
-                # -> これにより、自然と「惰行(act=1)」を選ぶようになります
-                if velocity_ms > max(target_v_max - 2.0, 0.0):
-                    ef_penalty -= 2.0
+            # 進行報酬とエコドライブボーナス
+            progress_m = self.prev_distance_m - distance_m
+            if pos_km <= self.target_station_km and progress_m > 0:
+                if not is_overspeed:
+                    # 進行報酬のスケールを下げ、停止ボーナスに価値を移す
+                    tve_reward += progress_m * 1.0 
+                    
+                    # 【新設】エコドライブボーナス：目標速度付近で「惰行(act=1)」していると稼げる
+                    if (target_v_max - 5.0) <= velocity_ms <= target_v_max and velocity_ms > 2.0:
+                        if act == 1:
+                            tve_reward += 2.0 
+
+            # 力行(act=0)時のペナルティ（惰行への誘導）
+            if act == 0: 
+                ef_penalty -= 0.5 
+                # 目標速度に近づいているのに加速すると強めの罰
+                if velocity_ms > max(target_v_max - 3.0, 0.0):
+                    ef_penalty -= 5.0 
 
         self.prev_distance_m = distance_m
 
         # ==========================================
-        # 4. 乗り心地 (7秒間の操作保持)
+        # 4. 乗り心地 (バンバン制御の赤字化)
         # ==========================================
         if not is_waiting_period:
             if act == self.previous_action:
                 self.action_hold_time += 1
             else:
-                # ステップ周期が0.1秒と仮定し、7秒=70ステップ
-                min_hold_steps = 70
+                min_hold_steps = 70 
                 if self.action_hold_time < min_hold_steps:
-                    penalty_val = -0.5 * (min_hold_steps - self.action_hold_time)
-                    # 加速(0)からブレーキ(2)など、惰行(1)を挟まない急な切り替えはペナルティ2倍
+                    # 切り替え罰を大幅強化し、頻繁なノッチ操作を割に合わなくする
+                    penalty_val = -20.0 
                     if abs(self.previous_action - act) == 2:
-                        penalty_val *= 2.0
+                        penalty_val -= 50.0  # 加速⇔ブレーキの直接切り替えは特大ペナルティ
                     ic_penalty += penalty_val
                 self.action_hold_time = 0
         self.previous_action = act
 
         # ==========================================
-        # 5. 停止位置精度ボーナス (引力ポテンシャル)
+        # 5. 停止位置精度ボーナス (ゴールへの超・引力)
         # ==========================================
         if not is_waiting_period and pos_km <= self.target_station_km + 0.02:
             if distance_m <= 100.0:
-                # 駅に近づくにつれて増幅される報酬（TD誤差の補助）
                 de_bonus += 5.0 * math.exp(-distance_m / 20.0)
-
-                # 速度が落ちていればボーナス
                 if velocity_ms < 1.0:
                     station_id = getattr(self, "current_station_id", "station_target")
                     if station_id not in self.visited_stations:
                         if distance_m <= 10.0:
-                            de_bonus += 100.0
-                            if distance_m <= 1.0:  # 開扉可能範囲
-                                de_bonus += 500.0
+                            de_bonus += 500.0
+                            if distance_m <= 1.0: 
+                                de_bonus += 2000.0
                             self.visited_stations.add(station_id)
 
         terminal_reward = 0.0
         if done and distance_m <= 5.0 and velocity_ms < 0.5:
-            terminal_reward += 1000.0
+            # 駅に停まるモチベーションを最大化するため、ボーナスを5000に引き上げ
+            terminal_reward += 5000.0
 
         # ==========================================
         # 6. 合計報酬と辞書の構築
@@ -480,7 +487,7 @@ class TrainEnv(gym.Env):
             "sl_penalty": sl_penalty,
             "de_bonus": de_bonus + terminal_reward,
         }
-
+        
         total_reward = float(sum(reward_components.values()))
-
+        
         return total_reward, reward_components

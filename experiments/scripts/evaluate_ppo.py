@@ -25,7 +25,7 @@ def main():
     target_train_name = "普通列車2"  # ★修正済みの列車名
 
     # モデルのパスを明示的に指定（学習後のモデルをロードするため）
-    model_path = "PPO_datas/20260415155943/ppo_final_model.zip"
+    model_path = "PPO_datas/20260417155536/ppo_final_model.zip"
 
     if not os.path.exists(model_path):
         logger.error(f"モデルが見つかりません。先に学習を実行してください: {model_path}")
