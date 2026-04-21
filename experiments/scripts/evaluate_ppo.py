@@ -25,7 +25,7 @@ def main():
     target_train_name = "普通列車2"  # ★修正済みの列車名
 
     # モデルのパスを明示的に指定（学習後のモデルをロードするため）
-    model_path = "PPO_datas/20260417155536/ppo_final_model.zip"
+    model_path = "PPO_datas/20260421165141/ppo_final_model.zip"
 
     if not os.path.exists(model_path):
         logger.error(f"モデルが見つかりません。先に学習を実行してください: {model_path}")
@@ -66,8 +66,8 @@ def main():
         obs, reward, done, truncated, info = env.step(action)
 
         current_time = info["time"]
-        velocity = obs[0] * 3.6
-        speed_limit = obs[1] * 3.6
+        velocity = obs[0]
+        speed_limit = obs[1]
 
         # ★追加: Positionオブジェクトから「距離(km)」の数値だけを安全に抽出
         pos_obj = info["train_position"]

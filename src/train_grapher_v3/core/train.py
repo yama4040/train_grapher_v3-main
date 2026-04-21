@@ -329,7 +329,7 @@ class Train:
             else:
                 acceleration = self._train_parameter.decelerating_acceleration
 
-        elif status == Status.BRAKE_TRAIN or Status.BRAKE_STATION:
+        elif status == Status.BRAKE_TRAIN or status == Status.BRAKE_STATION:
             if is_none:
                 acceleration = 0
             else:
